@@ -161,7 +161,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden">
+    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden safe-top">
       <main className="flex-1 overflow-y-auto pb-20">
         {renderTab()}
       </main>
