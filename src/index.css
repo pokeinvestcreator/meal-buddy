@@ -11,6 +11,13 @@
     overscroll-behavior: none;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
   }
+  button {
+    touch-action: manipulation;
+    cursor: pointer;
+  }
+  button * {
+    pointer-events: none;
+  }
 }
 
 @layer utilities {
