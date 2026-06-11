@@ -42,7 +42,7 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab }) {
 
   // ── MEAL BROWSER ─────────────────────────────────────────────────────────────
   if (browsingType) {
-    const typeInfo = MEAL_TYPES.find(t => t.id === browsingType)
+    const typeInfo = MEAL_TYPES.find(t => t.key === browsingType)
     return (
       <div className="px-4 pt-5 pb-6">
         <div className="flex items-center gap-3 mb-5">
@@ -117,10 +117,10 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab }) {
         <p className="text-sm font-semibold text-stone-700 uppercase tracking-wide mb-3">Which meal types?</p>
         <div className="grid grid-cols-2 gap-3 mb-8">
           {MEAL_TYPES.map(type => {
-            const isSel = selectedTypes.includes(type.id)
+            const isSel = selectedTypes.includes(type.key)
             return (
-              <button key={type.id} type="button" style={btnStyle}
-                onClick={() => setSelectedTypes(p => p.includes(type.id) ? p.filter(t => t !== type.id) : [...p, type.id])}
+              <button key={type.key} type="button" style={btnStyle}
+                onClick={() => setSelectedTypes(p => p.includes(type.key) ? p.filter(t => t !== type.key) : [...p, type.key])}
                 className={`flex items-center gap-3 p-4 rounded-2xl border-2 cursor-pointer text-left ${isSel ? 'border-emerald-500 bg-emerald-50' : 'border-stone-200 bg-white'}`}>
                 <span className="text-2xl leading-none">{type.emoji}</span>
                 <div>
@@ -155,7 +155,7 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab }) {
 
         <div className="space-y-3 mb-8">
           {selectedTypes.map(typeId => {
-            const typeInfo = MEAL_TYPES.find(t => t.id === typeId)
+            const typeInfo = MEAL_TYPES.find(t => t.key === typeId)
             const selected = mealSelections[typeId]
             return (
               <div key={typeId} className="bg-white border border-stone-200 rounded-2xl p-4">
@@ -215,7 +215,7 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab }) {
 
       <div className="space-y-3 mb-8">
         {selectedTypes.map(typeId => {
-          const typeInfo = MEAL_TYPES.find(t => t.id === typeId)
+          const typeInfo = MEAL_TYPES.find(t => t.key === typeId)
           const meal = mealSelections[typeId]
           const sv = servings[typeId] || selectedDates.length || 1
           if (!meal) return null

@@ -123,10 +123,10 @@ export default function RecipesTab({ favorites, customMeals, onToggleFavorite, o
         <div className="flex gap-2 overflow-x-auto pb-0.5 hide-scrollbar">
           {allTypes.map(type => (
             <button
-              key={type.id}
-              onClick={() => setFilterType(type.id)}
+              key={type.key}
+              onClick={() => setFilterType(type.key)}
               className={`flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                filterType === type.id
+                filterType === type.key
                   ? 'bg-stone-900 text-white border-stone-900'
                   : 'bg-white text-stone-600 border-stone-200'
               }`}
@@ -143,7 +143,7 @@ export default function RecipesTab({ favorites, customMeals, onToggleFavorite, o
         <p className="text-xs text-stone-400 font-medium">
           {filtered.length} recipe{filtered.length !== 1 ? 's' : ''}
           {showFavs ? ' · Favorites' : ''}
-          {filterType !== 'all' ? ` · ${MEAL_TYPES.find(t => t.id === filterType)?.label}` : ''}
+          {filterType !== 'all' ? ` · ${MEAL_TYPES.find(t => t.key === filterType)?.label}` : ''}
         </p>
       </div>
 

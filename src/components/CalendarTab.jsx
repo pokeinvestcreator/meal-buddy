@@ -40,7 +40,7 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
     const dayPlan = mealPlan[selectedDate] || {}
     return MEAL_TYPES
       .map(type => {
-        const entry = dayPlan[type.id]
+        const entry = dayPlan[type.key]
         if (!entry) return null
         const meal = findMeal(entry.mealId)
         if (!meal) return null
@@ -169,14 +169,14 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
           <div className="space-y-2.5">
             {selectedDateMeals.map(({ type, meal, servings }) => (
               <CalendarMealCard
-                key={type.id}
+                key={type.key}
                 type={type}
                 meal={meal}
                 servings={servings}
-                isExpanded={expandedMeal === type.id}
-                onToggle={() => setExpandedMeal(expandedMeal === type.id ? null : type.id)}
+                isExpanded={expandedMeal === type.key}
+                onToggle={() => setExpandedMeal(expandedMeal === type.key ? null : type.key)}
                 onOpenRecipe={() => onOpenRecipe(meal)}
-                onRemove={() => onRemoveMeal(selectedDate, type.id)}
+                onRemove={() => onRemoveMeal(selectedDate, type.key)}
               />
             ))}
           </div>
@@ -212,7 +212,7 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
 }
 
 function CalendarMealCard({ type, meal, servings, isExpanded, onToggle, onOpenRecipe, onRemove }) {
-  const colorClass = TYPE_COLORS[type.id] || 'bg-stone-100 text-stone-700 border-stone-200'
+  const colorClass = TYPE_COLORS[type.key] || 'bg-stone-100 text-stone-700 border-stone-200'
   const m = meal.macrosPerServing
 
   return (
