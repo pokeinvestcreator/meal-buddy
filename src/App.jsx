@@ -15,9 +15,20 @@ import AddMealModal from './components/AddMealModal'
 const DEFAULT_SETTINGS = {
   prepDays: ['monday', 'thursday'],
   proteinTarget: 200,
+  calorieTarget: 2500,
   unitPreference: 'g',
   preferredFoods: ['pasta', 'steak', 'chicken', 'eggs', 'greek yogurt', 'rice', 'potatoes'],
   dislikedFoods: [],
+  darkMode: false,
+  profile: {
+    gender: 'male',
+    age: null,
+    weightLbs: null,
+    heightFt: null,
+    heightIn: null,
+    activityLevel: 'moderate',
+    goal: 'maintain',
+  },
 }
 
 export default function App() {
@@ -221,7 +232,7 @@ export default function App() {
   }
 
   return (
-    <div className="h-screen flex flex-col bg-slate-50 overflow-hidden safe-top">
+    <div className={`h-screen flex flex-col overflow-hidden safe-top ${settings?.darkMode ? 'bg-stone-900' : 'bg-slate-50'}`}>
       <main className="flex-1 overflow-y-auto pb-20">{renderTab()}</main>
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} mealPlan={mealPlan} groceryList={groceryList} />
       {modalMeal && (
