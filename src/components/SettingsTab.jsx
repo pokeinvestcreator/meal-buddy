@@ -27,7 +27,7 @@ function Toggle({ checked, onChange }) {
   )
 }
 
-export default function SettingsTab({ settings, setSettings }) {
+export default function SettingsTab({ settings, setSettings, onSignOut, userEmail }) {
   const [newLike, setNewLike] = useState('')
   const [newDislike, setNewDislike] = useState('')
 
@@ -222,6 +222,23 @@ export default function SettingsTab({ settings, setSettings }) {
           <p className="text-2xl mb-1">🥗</p>
           <p className="font-bold text-stone-800">Meal Buddy</p>
           <p className="text-xs text-stone-400 mt-0.5">Your personal meal prep companion</p>
+        </div>
+      </section>
+
+      {/* Account */}
+      <section>
+        <h2 className="text-sm font-semibold text-stone-700 uppercase tracking-wide mb-3">Account</h2>
+        <div className="bg-white border border-stone-200 rounded-2xl overflow-hidden divide-y divide-stone-100">
+          <div className="px-4 py-3">
+            <p className="text-xs text-stone-400 font-medium">Logged in as</p>
+            <p className="text-sm font-semibold text-stone-800 mt-0.5">{userEmail}</p>
+          </div>
+          <button
+            onClick={onSignOut}
+            className="w-full px-4 py-3 text-left text-sm font-semibold text-red-500"
+          >
+            Sign Out
+          </button>
         </div>
       </section>
     </div>
