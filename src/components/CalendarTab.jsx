@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { MEAL_TYPES, getWeekDates, toDateKey } from '../utils/mealUtils'
+import { MEAL_TYPES, toDateKey } from '../utils/mealUtils'
 import { MEALS } from '../data/meals'
 
 function getWeekOffset(offset) {
@@ -23,18 +23,24 @@ const TYPE_COLORS = {
   snack: 'bg-green-100 text-green-800 border-green-200',
 }
 
-export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRemoveMeal, setActiveTab }) {
+export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRemoveMeal, onSwapMeal, setActiveTab, settings }) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState(toDateKey(new Date()))
   const [expandedMeal, setExpandedMeal] = useState(null)
+  const [swapping, setSwapping] = useState(null) // { dateKey, typeKey, typeInfo }
+  const [swapSearch, setSwapSearch] = useState('')
 
-  const allMeals = useMemo(() => [...MEALS, ...customMeals], [customMeals])
+  const dark = settings?.darkMode || false
+  const allMeals = useMemo(() => [...MEALS, ...(customMeals || [])], [customMeals])
   const weekDates = useMemo(() => getWeekOffset(weekOffset), [weekOffset])
   const todayKey = toDateKey(new Date())
 
-  function findMeal(id) {
-    return allMeals.find(m => m.id === id)
-  }
+  const bg = dark ? 'bg-stone-900' : ''
+  const card = dark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'
+  const text = dark ? 'text-white' : 'text-stone-900'
+  const sub = dark ? 'text-stone-400' : 'text-stone-500'
+
+  function findMeal(id) { return allMeals.find(m => m.id === id) }
 
   const selectedDateMeals = useMemo(() => {
     const dayPlan = mealPlan[selectedDate] || {}
@@ -49,13 +55,24 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
       .filter(Boolean)
   }, [selectedDate, mealPlan, allMeals])
 
+  const dayMacros = useMemo(() => {
+    return selectedDateMeals.reduce(
+      (acc, { meal, servings }) => ({
+        protein: acc.protein + meal.macrosPerServing.protein * servings,
+        calories: acc.calories + meal.macrosPerServing.calories * servings,
+        carbs: acc.carbs + meal.macrosPerServing.carbs * servings,
+        fat: acc.fat + meal.macrosPerServing.fat * servings,
+      }),
+      { protein: 0, calories: 0, carbs: 0, fat: 0 }
+    )
+  }, [selectedDateMeals])
+
   const weekLabel = useMemo(() => {
-    const first = weekDates[0]
-    const last = weekDates[6]
     if (weekOffset === 0) return 'This Week'
     if (weekOffset === 1) return 'Next Week'
     if (weekOffset === -1) return 'Last Week'
-    return `${first.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} – ${last.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`
+    const first = weekDates[0]
+    return first.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }, [weekDates, weekOffset])
 
   const selectedDateLabel = useMemo(() => {
@@ -64,43 +81,82 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
     return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
   }, [selectedDate, todayKey])
 
-  // Total macros for selected day
-  const dayMacros = useMemo(() => {
-    return selectedDateMeals.reduce(
-      (acc, { meal, servings }) => {
-        acc.protein += meal.macrosPerServing.protein * servings
-        acc.calories += meal.macrosPerServing.calories * servings
-        acc.carbs += meal.macrosPerServing.carbs * servings
-        acc.fat += meal.macrosPerServing.fat * servings
-        return acc
-      },
-      { protein: 0, calories: 0, carbs: 0, fat: 0 }
+  const proteinTarget = settings?.proteinTarget || 200
+  const calorieTarget = settings?.calorieTarget || 2500
+
+  // Swap meal browser
+  if (swapping) {
+    const filteredSwap = allMeals.filter(m =>
+      m.category === swapping.typeKey &&
+      (!swapSearch || m.name.toLowerCase().includes(swapSearch.toLowerCase()))
     )
-  }, [selectedDateMeals])
+    return (
+      <div className={`px-4 pt-5 pb-6 ${bg} min-h-full`}>
+        <div className="flex items-center gap-3 mb-5">
+          <button type="button" onClick={() => { setSwapping(null); setSwapSearch('') }}
+            className={`px-3 py-2 rounded-xl text-sm cursor-pointer ${dark ? 'bg-stone-700 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>
+            ← Cancel
+          </button>
+          <div>
+            <h2 className={`font-bold text-lg ${text}`}>Swap {swapping.typeInfo?.emoji} {swapping.typeInfo?.label}</h2>
+            <p className={`text-xs ${sub}`}>{new Date(swapping.dateKey + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</p>
+          </div>
+        </div>
+
+        <input type="text" placeholder="Search meals..." value={swapSearch}
+          onChange={e => setSwapSearch(e.target.value)}
+          className={`w-full px-4 py-2.5 border rounded-xl text-sm mb-4 focus:outline-none focus:border-emerald-400 ${dark ? 'bg-stone-700 border-stone-600 text-white placeholder-stone-400' : 'bg-white border-stone-200'}`} />
+
+        <div className="space-y-2.5">
+          {filteredSwap.map(meal => {
+            const m = meal.macrosPerServing
+            const current = findMeal(mealPlan[swapping.dateKey]?.[swapping.typeKey]?.mealId)
+            const isCurrent = current?.id === meal.id
+            return (
+              <button key={meal.id} type="button"
+                onClick={() => {
+                  const currentServings = mealPlan[swapping.dateKey]?.[swapping.typeKey]?.servings || 1
+                  onSwapMeal(swapping.dateKey, swapping.typeKey, meal, currentServings)
+                  setSwapping(null)
+                  setSwapSearch('')
+                }}
+                className={`w-full text-left rounded-2xl border-2 p-3.5 cursor-pointer ${isCurrent ? 'border-emerald-500 bg-emerald-50' : `border-transparent ${card}`}`}>
+                <div className="flex items-start gap-3">
+                  <span className="text-3xl leading-none">{meal.emoji}</span>
+                  <div className="flex-1">
+                    <p className={`font-semibold text-sm ${isCurrent ? 'text-emerald-700' : text}`}>
+                      {meal.name} {isCurrent ? '(current)' : ''}
+                    </p>
+                    <p className={`text-[11px] ${sub}`}>{meal.prepTime + meal.cookTime}min · {m.calories}cal</p>
+                    <div className="flex gap-2.5 mt-1">
+                      <span className="text-[11px] font-semibold text-blue-500">P {m.protein}g</span>
+                      <span className="text-[11px] font-semibold text-amber-500">C {m.carbs}g</span>
+                      <span className="text-[11px] font-semibold text-red-400">F {m.fat}g</span>
+                    </div>
+                  </div>
+                </div>
+              </button>
+            )
+          })}
+          {filteredSwap.length === 0 && <p className={`text-center text-sm py-8 ${sub}`}>No meals found</p>}
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="pb-6">
-      {/* Week nav */}
-      <div className="sticky top-0 z-10 bg-white border-b border-stone-100">
+    <div className={`pb-6 ${bg} min-h-full`}>
+      {/* Header */}
+      <div className={`sticky top-0 z-10 border-b ${dark ? 'bg-stone-900 border-stone-800' : 'bg-white border-stone-100'}`}>
         <div className="flex items-center justify-between px-4 pt-5 pb-2">
-          <h1 className="text-xl font-bold text-stone-900">Calendar</h1>
+          <h1 className={`text-xl font-bold ${text}`}>Calendar</h1>
           <div className="flex items-center gap-1">
-            <button
-              onClick={() => setWeekOffset(w => w - 1)}
-              className="p-2 rounded-xl text-stone-500 active:bg-stone-100"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                <path d="M15 18l-6-6 6-6"/>
-              </svg>
+            <button onClick={() => setWeekOffset(w => w - 1)} className={`p-2 rounded-xl ${dark ? 'text-stone-400' : 'text-stone-500'}`}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M15 18l-6-6 6-6"/></svg>
             </button>
-            <span className="text-sm font-semibold text-stone-700 min-w-[80px] text-center">{weekLabel}</span>
-            <button
-              onClick={() => setWeekOffset(w => w + 1)}
-              className="p-2 rounded-xl text-stone-500 active:bg-stone-100"
-            >
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
-                <path d="M9 18l6-6-6-6"/>
-              </svg>
+            <span className={`text-sm font-semibold min-w-[80px] text-center ${text}`}>{weekLabel}</span>
+            <button onClick={() => setWeekOffset(w => w + 1)} className={`p-2 rounded-xl ${dark ? 'text-stone-400' : 'text-stone-500'}`}>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4"><path d="M9 18l6-6-6-6"/></svg>
             </button>
           </div>
         </div>
@@ -113,43 +169,30 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
             const isToday = dk === todayKey
             const hasMeals = mealPlan[dk] && Object.keys(mealPlan[dk]).length > 0
             const label = date.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1)
-
             return (
-              <button
-                key={dk}
-                onClick={() => setSelectedDate(dk)}
+              <button key={dk} onClick={() => setSelectedDate(dk)}
                 className={`flex flex-col items-center py-2 px-1 rounded-xl transition-all ${
-                  isSelected
-                    ? 'bg-emerald-500 text-white'
-                    : isToday
-                    ? 'bg-emerald-50'
-                    : 'text-stone-600'
-                }`}
-              >
-                <span className={`text-[10px] font-medium ${isSelected ? 'text-emerald-100' : 'text-stone-400'}`}>{label}</span>
-                <span className={`text-sm font-bold ${isSelected ? 'text-white' : isToday ? 'text-emerald-600' : 'text-stone-800'}`}>
-                  {date.getDate()}
-                </span>
-                <span className={`w-1.5 h-1.5 rounded-full mt-0.5 ${
-                  hasMeals
-                    ? isSelected ? 'bg-emerald-200' : 'bg-emerald-500'
-                    : 'bg-transparent'
-                }`} />
+                  isSelected ? 'bg-emerald-500 text-white'
+                  : isToday ? dark ? 'bg-stone-800' : 'bg-emerald-50'
+                  : ''}`}>
+                <span className={`text-[10px] font-medium ${isSelected ? 'text-emerald-100' : sub}`}>{label}</span>
+                <span className={`text-sm font-bold ${isSelected ? 'text-white' : isToday ? 'text-emerald-600' : text}`}>{date.getDate()}</span>
+                <span className={`w-1.5 h-1.5 rounded-full mt-0.5 ${hasMeals ? isSelected ? 'bg-emerald-200' : 'bg-emerald-500' : 'bg-transparent'}`} />
               </button>
             )
           })}
         </div>
       </div>
 
-      {/* Selected day meals */}
+      {/* Day content */}
       <div className="px-4 pt-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="font-bold text-stone-900">{selectedDateLabel}</h2>
+          <h2 className={`font-bold ${text}`}>{selectedDateLabel}</h2>
           {selectedDateMeals.length > 0 && (
             <div className="flex gap-2 text-xs">
-              <span className="text-blue-600 font-semibold">{Math.round(dayMacros.protein)}g P</span>
-              <span className="text-stone-400">·</span>
-              <span className="text-stone-600 font-semibold">{Math.round(dayMacros.calories)} cal</span>
+              <span className="text-blue-500 font-semibold">{Math.round(dayMacros.protein)}g P</span>
+              <span className={sub}>·</span>
+              <span className={`font-semibold ${sub}`}>{Math.round(dayMacros.calories)} cal</span>
             </div>
           )}
         </div>
@@ -157,13 +200,8 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
         {selectedDateMeals.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <div className="text-4xl mb-3">📅</div>
-            <p className="text-stone-500 text-sm mb-4">No meals planned for this day</p>
-            <button
-              onClick={() => setActiveTab('plan')}
-              className="bg-emerald-600 text-white px-5 py-2.5 rounded-2xl font-semibold text-sm active:bg-emerald-700"
-            >
-              Plan Meals
-            </button>
+            <p className={`text-sm mb-4 ${sub}`}>No meals planned for this day</p>
+            <button onClick={() => setActiveTab('plan')} className="bg-emerald-600 text-white px-5 py-2.5 rounded-2xl font-semibold text-sm">Plan Meals</button>
           </div>
         ) : (
           <div className="space-y-2.5">
@@ -173,35 +211,54 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
                 type={type}
                 meal={meal}
                 servings={servings}
+                dark={dark}
                 isExpanded={expandedMeal === type.key}
                 onToggle={() => setExpandedMeal(expandedMeal === type.key ? null : type.key)}
                 onOpenRecipe={() => onOpenRecipe(meal)}
-                onRemove={() => onRemoveMeal(selectedDate, type.key)}
+                onRemove={() => { onRemoveMeal(selectedDate, type.key); setExpandedMeal(null) }}
+                onSwap={() => setSwapping({ dateKey: selectedDate, typeKey: type.key, typeInfo: type })}
               />
             ))}
           </div>
         )}
 
-        {/* Day macros summary */}
+        {/* Day totals */}
         {selectedDateMeals.length > 0 && (
-          <div className="mt-4 bg-stone-50 border border-stone-200 rounded-2xl p-4">
-            <p className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-3">Day Totals</p>
-            <div className="grid grid-cols-4 gap-2 text-center">
+          <div className={`mt-4 border rounded-2xl p-4 ${card}`}>
+            <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${sub}`}>Day Totals</p>
+            <div className="grid grid-cols-4 gap-2 text-center mb-3">
+              {[
+                { label: 'CALORIES', val: Math.round(dayMacros.calories), color: text },
+                { label: 'PROTEIN', val: `${Math.round(dayMacros.protein)}g`, color: 'text-blue-500' },
+                { label: 'CARBS', val: `${Math.round(dayMacros.carbs)}g`, color: 'text-amber-500' },
+                { label: 'FAT', val: `${Math.round(dayMacros.fat)}g`, color: 'text-red-400' },
+              ].map(({ label, val, color }) => (
+                <div key={label} className={`rounded-xl p-2 ${dark ? 'bg-stone-700' : 'bg-stone-50'}`}>
+                  <p className={`text-lg font-bold ${color}`}>{val}</p>
+                  <p className={`text-[9px] font-medium uppercase ${sub}`}>{label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Target progress bars */}
+            <div className="space-y-2">
               <div>
-                <p className="text-lg font-bold text-stone-900">{Math.round(dayMacros.calories)}</p>
-                <p className="text-[10px] text-stone-400 font-medium">CALORIES</p>
+                <div className="flex justify-between mb-1">
+                  <span className={`text-xs font-medium text-blue-500`}>Protein</span>
+                  <span className={`text-xs font-semibold text-blue-500`}>{Math.round(dayMacros.protein)}g / {proteinTarget}g</span>
+                </div>
+                <div className={`h-1.5 rounded-full ${dark ? 'bg-stone-700' : 'bg-stone-100'}`}>
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(100, (dayMacros.protein/proteinTarget)*100)}%` }} />
+                </div>
               </div>
               <div>
-                <p className="text-lg font-bold text-blue-600">{Math.round(dayMacros.protein)}g</p>
-                <p className="text-[10px] text-stone-400 font-medium">PROTEIN</p>
-              </div>
-              <div>
-                <p className="text-lg font-bold text-amber-600">{Math.round(dayMacros.carbs)}g</p>
-                <p className="text-[10px] text-stone-400 font-medium">CARBS</p>
-              </div>
-              <div>
-                <p className="text-lg font-bold text-red-500">{Math.round(dayMacros.fat)}g</p>
-                <p className="text-[10px] text-stone-400 font-medium">FAT</p>
+                <div className="flex justify-between mb-1">
+                  <span className={`text-xs font-medium ${sub}`}>Calories</span>
+                  <span className={`text-xs font-semibold ${sub}`}>{Math.round(dayMacros.calories)} / {calorieTarget}</span>
+                </div>
+                <div className={`h-1.5 rounded-full ${dark ? 'bg-stone-700' : 'bg-stone-100'}`}>
+                  <div className="h-full rounded-full bg-stone-400" style={{ width: `${Math.min(100, (dayMacros.calories/calorieTarget)*100)}%` }} />
+                </div>
               </div>
             </div>
           </div>
@@ -211,58 +268,50 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
   )
 }
 
-function CalendarMealCard({ type, meal, servings, isExpanded, onToggle, onOpenRecipe, onRemove }) {
+function CalendarMealCard({ type, meal, servings, dark, isExpanded, onToggle, onOpenRecipe, onRemove, onSwap }) {
   const colorClass = TYPE_COLORS[type.key] || 'bg-stone-100 text-stone-700 border-stone-200'
   const m = meal.macrosPerServing
+  const card = dark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'
+  const text = dark ? 'text-white' : 'text-stone-900'
+  const sub = dark ? 'text-stone-400' : 'text-stone-400'
 
   return (
-    <div className="bg-white border border-stone-200 rounded-2xl overflow-hidden">
+    <div className={`border rounded-2xl overflow-hidden ${card}`}>
       <button onClick={onToggle} className="w-full flex items-center gap-3 p-3.5 text-left">
         <span className="text-2xl">{meal.emoji}</span>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${colorClass}`}>
-              {type.label}
-            </span>
-            {servings > 1 && (
-              <span className="text-[10px] text-stone-400 font-medium">{servings}x</span>
-            )}
+            <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${colorClass}`}>{type.label}</span>
+            {servings > 1 && <span className={`text-[10px] font-medium ${sub}`}>{servings}×</span>}
           </div>
-          <p className="font-semibold text-stone-900 text-sm mt-0.5 leading-tight">{meal.name}</p>
-          <p className="text-[11px] text-stone-400">{m.calories * servings} cal · {m.protein * servings}g P</p>
+          <p className={`font-semibold text-sm mt-0.5 ${text}`}>{meal.name}</p>
+          <p className={`text-[11px] ${sub}`}>{m.calories * servings} cal · {m.protein * servings}g P</p>
         </div>
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className={`w-4 h-4 text-stone-400 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
+          className={`w-4 h-4 flex-shrink-0 transition-transform ${sub} ${isExpanded ? 'rotate-180' : ''}`}>
           <path d="M6 9l6 6 6-6"/>
         </svg>
       </button>
 
       {isExpanded && (
-        <div className="border-t border-stone-100 px-3.5 pb-3.5 pt-3">
+        <div className={`border-t px-3.5 pb-3.5 pt-3 ${dark ? 'border-stone-700' : 'border-stone-100'}`}>
           <div className="grid grid-cols-4 gap-1.5 mb-3">
             {[
-              { label: 'Cal', val: m.calories * servings, color: 'text-stone-700' },
-              { label: 'Protein', val: `${m.protein * servings}g`, color: 'text-blue-600' },
-              { label: 'Carbs', val: `${m.carbs * servings}g`, color: 'text-amber-600' },
-              { label: 'Fat', val: `${m.fat * servings}g`, color: 'text-red-500' },
+              { label: 'Cal', val: m.calories * servings, color: text },
+              { label: 'Protein', val: `${m.protein * servings}g`, color: 'text-blue-500' },
+              { label: 'Carbs', val: `${m.carbs * servings}g`, color: 'text-amber-500' },
+              { label: 'Fat', val: `${m.fat * servings}g`, color: 'text-red-400' },
             ].map(({ label, val, color }) => (
-              <div key={label} className="bg-stone-50 rounded-xl p-2 text-center">
+              <div key={label} className={`rounded-xl p-2 text-center ${dark ? 'bg-stone-700' : 'bg-stone-50'}`}>
                 <p className={`text-sm font-bold ${color}`}>{val}</p>
-                <p className="text-[9px] text-stone-400 font-medium uppercase">{label}</p>
+                <p className={`text-[9px] uppercase ${sub}`}>{label}</p>
               </div>
             ))}
           </div>
-
           <div className="flex gap-2">
-            <button
-              onClick={onOpenRecipe}
-              className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-sm font-semibold active:bg-emerald-700"
-            >
-              View Recipe
-            </button>
-            <button
-              onClick={onRemove}
-              className="px-3.5 bg-stone-100 text-stone-500 py-2.5 rounded-xl text-sm font-semibold active:bg-stone-200"
-            >
+            <button onClick={onOpenRecipe} className="flex-1 bg-emerald-600 text-white py-2.5 rounded-xl text-sm font-semibold">View Recipe</button>
+            <button onClick={onSwap} className={`px-3.5 py-2.5 rounded-xl text-sm font-semibold ${dark ? 'bg-stone-700 text-stone-300' : 'bg-blue-50 text-blue-600'}`}>Swap</button>
+            <button onClick={onRemove} className={`px-3.5 py-2.5 rounded-xl text-sm font-semibold ${dark ? 'bg-stone-700 text-stone-400' : 'bg-stone-100 text-stone-500'}`}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
                 <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
               </svg>

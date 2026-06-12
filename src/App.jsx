@@ -151,6 +151,19 @@ export default function App() {
     showToast(`${planSelections.length} meal${planSelections.length > 1 ? 's' : ''} added to plan!`)
   }
 
+  function swapMealOnPlan(dateKey, mealType, newMeal, newServings) {
+    updateMealPlan(prev => ({
+      ...prev,
+      [dateKey]: {
+        ...(prev[dateKey] || {}),
+        [mealType]: { mealId: newMeal.id, servings: newServings }
+      }
+    }))
+    // Add new meal ingredients to grocery list
+    updateGroceryList(prev => addMealToGrocery(prev, newMeal, newServings, [dateKey]))
+    showToast('Meal swapped!')
+  }
+
   function removeMealFromPlan(dateKey, mealType) {
     updateMealPlan(prev => {
       const updated = { ...prev }
@@ -210,7 +223,7 @@ export default function App() {
     onToggleGrocery: toggleGroceryItem,
     onClearChecked: clearCheckedItems,
     onMarkTripComplete: markGroceryTripComplete,
-    onUpdateGroceryItem: (key, updates) => updateGroceryList(prev => ({ ...prev, [key]: { ...prev[key], ...updates } })),
+    onSwapMeal: swapMealOnPlan,
     onToggleFavorite: toggleFavorite,
     onOpenRecipe: setModalMeal,
     onShowAddMeal: () => setShowAddMeal(true),
