@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from './lib/supabase'
 import { useAuth } from './context/AuthContext'
-import { addMealToGrocery } from './utils/mealUtils'
+import { addMealToGrocery, rebuildGroceryFromPlan } from './utils/mealUtils'
 import AuthPage from './components/AuthPage'
 import ChatTab from './components/ChatTab'
 import BottomNav from './components/BottomNav'
@@ -47,7 +47,6 @@ export default function App() {
   const saveTimer = useRef(null)
   const currentData = useRef({})
 
-  // Load data from Supabase when user logs in
   useEffect(() => {
     if (!user) { setDataLoading(false); return }
     loadData()
@@ -76,7 +75,6 @@ export default function App() {
     setDataLoading(false)
   }
 
-  // Debounced save to Supabase
   const scheduleSave = useCallback((updates) => {
     currentData.current = { ...currentData.current, ...updates }
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -90,7 +88,6 @@ export default function App() {
     }, 1500)
   }, [user])
 
-  // Wrapped setters that also trigger save
   function updateMealPlan(val) {
     const v = typeof val === 'function' ? val(mealPlan) : val
     setMealPlan(v); scheduleSave({ meal_plan: v })
@@ -160,7 +157,6 @@ export default function App() {
         [mealType]: { mealId: newMeal.id, servings: newServings }
       }
     }))
-    // Add new meal ingredients to grocery list
     updateGroceryList(prev => addMealToGrocery(prev, newMeal, newServings, [dateKey]))
     showToast('Meal swapped!')
   }
@@ -180,23 +176,32 @@ export default function App() {
 
   /**
    * Adjust serving sizes for all meals on a given day to hit a protein target.
-   * adjustments = { breakfast: 1.25, lunch: 1.5, dinner: 1.25 }
-   * Note: grocery list reflects original quantities — user should re-generate
-   * from Plan tab if they want the grocery list to match new servings.
+   * Also rebuilds the full grocery list from the updated meal plan so quantities
+   * stay accurate. Checked items are preserved.
    */
   function adjustDayServings(dateKey, adjustments) {
-    updateMealPlan(prev => {
-      const updated = { ...prev }
-      const day = { ...(updated[dateKey] || {}) }
-      Object.entries(adjustments).forEach(([mealType, newServings]) => {
-        if (day[mealType]) {
-          day[mealType] = { ...day[mealType], servings: newServings }
-        }
-      })
-      updated[dateKey] = day
-      return updated
+    // Compute updated plan synchronously so we can rebuild grocery in the same step
+    const newPlan = { ...mealPlan }
+    const day = { ...(newPlan[dateKey] || {}) }
+    Object.entries(adjustments).forEach(([mealType, newServings]) => {
+      if (day[mealType]) {
+        day[mealType] = { ...day[mealType], servings: newServings }
+      }
     })
-    showToast('Servings adjusted! 💪')
+    newPlan[dateKey] = day
+
+    // Rebuild grocery list from the full updated plan
+    const rebuilt = rebuildGroceryFromPlan(newPlan, customMeals)
+
+    // Preserve checked states from the current grocery list
+    const merged = {}
+    Object.entries(rebuilt).forEach(([key, item]) => {
+      merged[key] = { ...item, checked: groceryList[key]?.checked || false }
+    })
+
+    updateMealPlan(newPlan)
+    updateGroceryList(merged)
+    showToast('Servings and grocery list updated! 💪')
   }
 
   function toggleGroceryItem(key) {
@@ -217,7 +222,6 @@ export default function App() {
     showToast('Grocery trip complete!')
   }
 
-  // Show loading or auth
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center">
