@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { MEAL_TYPES, toDateKey } from '../utils/mealUtils'
+import { useState, useMemo, useEffect } from 'react'
+import { MEAL_TYPES, toDateKey, getProteinDriverIngredient } from '../utils/mealUtils'
 import { MEALS } from '../data/meals'
 
 function getWeekOffset(offset) {
@@ -23,12 +23,14 @@ const TYPE_COLORS = {
   snack: 'bg-green-100 text-green-800 border-green-200',
 }
 
-export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRemoveMeal, onSwapMeal, setActiveTab, settings }) {
+export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRemoveMeal, onSwapMeal, onAdjustServings, setActiveTab, settings }) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState(toDateKey(new Date()))
   const [expandedMeal, setExpandedMeal] = useState(null)
   const [swapping, setSwapping] = useState(null) // { dateKey, typeKey, typeInfo }
   const [swapSearch, setSwapSearch] = useState('')
+  const [adjusting, setAdjusting] = useState(false)
+  const [adjustTarget, setAdjustTarget] = useState(200)
 
   const dark = settings?.darkMode || false
   const allMeals = useMemo(() => [...MEALS, ...(customMeals || [])], [customMeals])
@@ -41,6 +43,9 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
   const sub = dark ? 'text-stone-400' : 'text-stone-500'
 
   function findMeal(id) { return allMeals.find(m => m.id === id) }
+
+  // Reset adjust view when the selected day changes
+  useEffect(() => { setAdjusting(false) }, [selectedDate])
 
   const selectedDateMeals = useMemo(() => {
     const dayPlan = mealPlan[selectedDate] || {}
@@ -84,7 +89,190 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
   const proteinTarget = settings?.proteinTarget || 200
   const calorieTarget = settings?.calorieTarget || 2500
 
-  // Swap meal browser
+  function openAdjust() {
+    setAdjustTarget(proteinTarget)
+    setAdjusting(true)
+  }
+
+  // ── Macro Adjust View ──────────────────────────────────────────────────────
+  if (adjusting) {
+    const scaleFactor = dayMacros.protein > 0 ? adjustTarget / dayMacros.protein : 1
+
+    // Round each meal's servings to nearest 0.25, clamped to [0.25, 10]
+    const adjustments = selectedDateMeals.map(({ type, meal, servings }) => {
+      const rawNew = servings * scaleFactor
+      const rounded = Math.round(rawNew * 4) / 4
+      const newServings = Math.max(0.25, Math.min(10, rounded))
+      return { type, meal, currentServings: servings, newServings }
+    })
+
+    // Project macros from the rounded servings (not ideal = scaleFactor × current, due to rounding)
+    const previewMacros = adjustments.reduce((acc, { meal, newServings }) => ({
+      protein: acc.protein + meal.macrosPerServing.protein * newServings,
+      calories: acc.calories + meal.macrosPerServing.calories * newServings,
+      carbs: acc.carbs + meal.macrosPerServing.carbs * newServings,
+      fat: acc.fat + meal.macrosPerServing.fat * newServings,
+    }), { protein: 0, calories: 0, carbs: 0, fat: 0 })
+
+    const alreadyOnTarget = Math.abs(dayMacros.protein - adjustTarget) / Math.max(adjustTarget, 1) < 0.03
+    const previewHitsTarget = Math.abs(previewMacros.protein - adjustTarget) / Math.max(adjustTarget, 1) < 0.12
+    const scalingUp = scaleFactor > 1.02
+
+    return (
+      <div className={`px-4 pt-5 pb-28 ${bg} min-h-full`}>
+        {/* Header */}
+        <div className="flex items-center gap-3 mb-5">
+          <button
+            type="button"
+            onClick={() => setAdjusting(false)}
+            style={{ touchAction: 'manipulation' }}
+            className={`px-3 py-2 rounded-xl text-sm font-medium cursor-pointer ${dark ? 'bg-stone-700 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>
+            ← Back
+          </button>
+          <div>
+            <h2 className={`font-bold text-lg ${text}`}>🎯 Adjust Macros</h2>
+            <p className={`text-xs ${sub}`}>{selectedDateLabel}</p>
+          </div>
+        </div>
+
+        {/* Protein target input */}
+        <div className={`rounded-2xl border p-4 mb-4 ${card}`}>
+          <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${sub}`}>Protein Target</p>
+          <div className="flex items-center gap-3 flex-wrap gap-y-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={adjustTarget}
+                min={1}
+                max={999}
+                onChange={e => setAdjustTarget(Math.max(1, Math.min(999, parseInt(e.target.value) || 1)))}
+                className={`w-20 px-3 py-2 border rounded-xl text-center font-bold text-xl focus:outline-none focus:border-emerald-400 ${dark ? 'bg-stone-700 border-stone-600 text-white' : 'bg-white border-stone-200 text-stone-900'}`}
+              />
+              <span className={`text-sm font-medium ${sub}`}>g protein</span>
+            </div>
+            {adjustTarget !== proteinTarget && (
+              <button
+                type="button"
+                onClick={() => setAdjustTarget(proteinTarget)}
+                style={{ touchAction: 'manipulation' }}
+                className={`text-xs px-3 py-1.5 rounded-lg ${dark ? 'bg-stone-700 text-stone-400' : 'bg-stone-100 text-stone-500'}`}>
+                Reset to {proteinTarget}g
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Before → After preview */}
+        <div className={`rounded-2xl border p-4 mb-4 ${card}`}>
+          <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${sub}`}>Preview</p>
+          <div className="grid grid-cols-2 gap-3 mb-2.5">
+            {/* Current */}
+            <div className={`rounded-xl p-3 ${dark ? 'bg-stone-700' : 'bg-stone-50'}`}>
+              <p className={`text-[10px] font-semibold uppercase tracking-wider ${sub} mb-2`}>Current</p>
+              <p className="text-blue-500 font-bold text-2xl leading-none">{Math.round(dayMacros.protein)}g</p>
+              <p className={`text-xs mt-1 ${sub}`}>{Math.round(dayMacros.calories)} cal</p>
+              <p className={`text-[10px] uppercase tracking-wide mt-0.5 ${sub}`}>protein</p>
+            </div>
+            {/* After */}
+            <div className={`rounded-xl p-3 border-2 transition-colors ${
+              alreadyOnTarget || previewHitsTarget
+                ? (dark ? 'border-emerald-500 bg-emerald-900/20' : 'border-emerald-400 bg-emerald-50')
+                : (dark ? 'border-stone-600 bg-stone-700' : 'border-stone-200 bg-stone-50')
+            }`}>
+              <p className={`text-[10px] font-semibold uppercase tracking-wider ${sub} mb-2`}>After</p>
+              <p className={`font-bold text-2xl leading-none ${alreadyOnTarget || previewHitsTarget ? 'text-emerald-500' : 'text-blue-400'}`}>
+                {alreadyOnTarget ? Math.round(dayMacros.protein) : Math.round(previewMacros.protein)}g
+              </p>
+              <p className={`text-xs mt-1 ${sub}`}>
+                {alreadyOnTarget ? Math.round(dayMacros.calories) : Math.round(previewMacros.calories)} cal
+              </p>
+              <p className={`text-[10px] uppercase tracking-wide mt-0.5 ${alreadyOnTarget || previewHitsTarget ? 'text-emerald-500' : sub}`}>
+                {alreadyOnTarget || previewHitsTarget ? '✓ on target' : 'projected'}
+              </p>
+            </div>
+          </div>
+          {alreadyOnTarget ? (
+            <p className="text-xs text-emerald-500 font-medium">✓ You're already hitting your protein target!</p>
+          ) : (
+            <p className={`text-xs ${sub}`}>
+              {scalingUp ? '↑' : '↓'} {scaleFactor.toFixed(2)}× scale applied to all meals · rounded to nearest ¼ serving
+            </p>
+          )}
+        </div>
+
+        {/* Per-meal breakdown */}
+        <p className={`text-xs font-semibold uppercase tracking-wide mb-2.5 ${sub}`}>Per Meal</p>
+        <div className="space-y-2.5 mb-6">
+          {adjustments.map(({ type, meal, currentServings, newServings }) => {
+            const driver = getProteinDriverIngredient(meal)
+            const proteinBefore = Math.round(meal.macrosPerServing.protein * currentServings)
+            const proteinAfter = Math.round(meal.macrosPerServing.protein * newServings)
+            const colorClass = TYPE_COLORS[type.key] || 'bg-stone-100 text-stone-700 border-stone-200'
+            const diff = newServings - currentServings
+            const servingColor = diff > 0.01 ? 'text-emerald-500' : diff < -0.01 ? 'text-amber-500' : text
+            return (
+              <div key={type.key} className={`rounded-2xl border p-3.5 ${card}`}>
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl leading-none flex-shrink-0">{meal.emoji}</span>
+                  <div className="flex-1 min-w-0">
+                    <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${colorClass}`}>
+                      {type.label}
+                    </span>
+                    <p className={`font-semibold text-sm mt-0.5 ${text} truncate`}>{meal.name}</p>
+                    {driver && (
+                      <p className={`text-[11px] ${sub}`}>↑ {driver.name}</p>
+                    )}
+                  </div>
+                  <div className="text-right flex-shrink-0 ml-2">
+                    <div className="flex items-center justify-end gap-1.5 mb-0.5">
+                      <span className={`text-sm ${sub}`}>{currentServings}×</span>
+                      <span className={`text-xs ${sub}`}>→</span>
+                      <span className={`text-sm font-bold ${servingColor}`}>{newServings}×</span>
+                    </div>
+                    <p className="text-[11px]">
+                      <span className="text-blue-400">{proteinBefore}g</span>
+                      <span className={sub}> → </span>
+                      <span className="text-blue-500 font-semibold">{proteinAfter}g</span>
+                      <span className={sub}> P</span>
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* Action */}
+        {!alreadyOnTarget ? (
+          <button
+            type="button"
+            style={{ touchAction: 'manipulation' }}
+            onClick={() => {
+              const result = {}
+              adjustments.forEach(({ type, newServings }) => { result[type.key] = newServings })
+              onAdjustServings(selectedDate, result)
+              setAdjusting(false)
+            }}
+            className="w-full bg-emerald-600 active:bg-emerald-700 text-white py-4 rounded-2xl font-bold text-base mb-3">
+            Apply Adjustments
+          </button>
+        ) : (
+          <button
+            type="button"
+            style={{ touchAction: 'manipulation' }}
+            onClick={() => setAdjusting(false)}
+            className={`w-full py-4 rounded-2xl font-bold text-base mb-3 ${dark ? 'bg-stone-700 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>
+            Already on track ✓
+          </button>
+        )}
+        <p className={`text-center text-xs ${sub}`}>
+          Grocery list reflects original quantities — re-generate from Plan if needed
+        </p>
+      </div>
+    )
+  }
+
+  // ── Swap Meal View ─────────────────────────────────────────────────────────
   if (swapping) {
     const filteredSwap = allMeals.filter(m =>
       m.category === swapping.typeKey &&
@@ -144,6 +332,7 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
     )
   }
 
+  // ── Main Calendar View ────────────────────────────────────────────────────
   return (
     <div className={`pb-6 ${bg} min-h-full`}>
       {/* Header */}
@@ -241,14 +430,14 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
             </div>
 
             {/* Target progress bars */}
-            <div className="space-y-2">
+            <div className="space-y-2 mb-3">
               <div>
                 <div className="flex justify-between mb-1">
-                  <span className={`text-xs font-medium text-blue-500`}>Protein</span>
-                  <span className={`text-xs font-semibold text-blue-500`}>{Math.round(dayMacros.protein)}g / {proteinTarget}g</span>
+                  <span className="text-xs font-medium text-blue-500">Protein</span>
+                  <span className="text-xs font-semibold text-blue-500">{Math.round(dayMacros.protein)}g / {proteinTarget}g</span>
                 </div>
                 <div className={`h-1.5 rounded-full ${dark ? 'bg-stone-700' : 'bg-stone-100'}`}>
-                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(100, (dayMacros.protein/proteinTarget)*100)}%` }} />
+                  <div className="h-full rounded-full bg-blue-500" style={{ width: `${Math.min(100, (dayMacros.protein / proteinTarget) * 100)}%` }} />
                 </div>
               </div>
               <div>
@@ -257,10 +446,23 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
                   <span className={`text-xs font-semibold ${sub}`}>{Math.round(dayMacros.calories)} / {calorieTarget}</span>
                 </div>
                 <div className={`h-1.5 rounded-full ${dark ? 'bg-stone-700' : 'bg-stone-100'}`}>
-                  <div className="h-full rounded-full bg-stone-400" style={{ width: `${Math.min(100, (dayMacros.calories/calorieTarget)*100)}%` }} />
+                  <div className="h-full rounded-full bg-stone-400" style={{ width: `${Math.min(100, (dayMacros.calories / calorieTarget) * 100)}%` }} />
                 </div>
               </div>
             </div>
+
+            {/* Macro adjust CTA */}
+            <button
+              type="button"
+              onClick={openAdjust}
+              style={{ touchAction: 'manipulation' }}
+              className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
+                dark
+                  ? 'border-stone-600 text-stone-300 bg-stone-700 active:bg-stone-600'
+                  : 'border-stone-200 text-stone-600 bg-stone-50 active:bg-stone-100'
+              }`}>
+              🎯 Adjust serving sizes to hit protein target
+            </button>
           </div>
         )}
       </div>

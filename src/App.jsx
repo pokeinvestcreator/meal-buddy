@@ -178,6 +178,27 @@ export default function App() {
     showToast('Meal removed')
   }
 
+  /**
+   * Adjust serving sizes for all meals on a given day to hit a protein target.
+   * adjustments = { breakfast: 1.25, lunch: 1.5, dinner: 1.25 }
+   * Note: grocery list reflects original quantities — user should re-generate
+   * from Plan tab if they want the grocery list to match new servings.
+   */
+  function adjustDayServings(dateKey, adjustments) {
+    updateMealPlan(prev => {
+      const updated = { ...prev }
+      const day = { ...(updated[dateKey] || {}) }
+      Object.entries(adjustments).forEach(([mealType, newServings]) => {
+        if (day[mealType]) {
+          day[mealType] = { ...day[mealType], servings: newServings }
+        }
+      })
+      updated[dateKey] = day
+      return updated
+    })
+    showToast('Servings adjusted! 💪')
+  }
+
   function toggleGroceryItem(key) {
     updateGroceryList(prev => ({ ...prev, [key]: { ...prev[key], checked: !prev[key].checked } }))
   }
@@ -225,6 +246,7 @@ export default function App() {
     onClearChecked: clearCheckedItems,
     onMarkTripComplete: markGroceryTripComplete,
     onSwapMeal: swapMealOnPlan,
+    onAdjustServings: adjustDayServings,
     onToggleFavorite: toggleFavorite,
     onOpenRecipe: setModalMeal,
     onShowAddMeal: () => setShowAddMeal(true),

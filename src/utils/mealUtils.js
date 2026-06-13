@@ -110,6 +110,25 @@ export function scaleMacros(macros, requestedServings, baseServings) {
   };
 }
 
+// ── Protein driver ────────────────────────────────────────────────────────────
+
+/**
+ * Returns the ingredient most responsible for the meal's protein content.
+ * Prefers ingredients with category='protein' (chicken, turkey, eggs, whey, etc.).
+ * Falls back to the heaviest ingredient overall if no protein-category ingredient exists.
+ * Used in macro adjustment UI to show "Scaling up: Ground turkey breast".
+ */
+export function getProteinDriverIngredient(meal) {
+  if (!meal.ingredients || meal.ingredients.length === 0) return null;
+  const proteinIngs = meal.ingredients.filter((i) => i.category === 'protein');
+  if (proteinIngs.length > 0) {
+    // Pick the protein-category ingredient with the most grams (best proxy for protein contribution)
+    return proteinIngs.reduce((max, i) => (i.grams > max.grams ? i : max));
+  }
+  // Fallback: heaviest ingredient (e.g. custom meals without category labelling)
+  return meal.ingredients.reduce((max, i) => (i.grams > max.grams ? i : max));
+}
+
 // ── Meal plan helpers ─────────────────────────────────────────────────────────
 
 export const MEAL_TYPES = [
