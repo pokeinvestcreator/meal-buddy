@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { MEAL_TYPES, toDateKey, getProteinDriverIngredient } from '../utils/mealUtils'
 import { MEALS } from '../data/meals'
 
+// ── Week helper ───────────────────────────────────────────────────────────────
 function getWeekOffset(offset) {
   const today = new Date()
   const day = today.getDay()
@@ -23,14 +24,111 @@ const TYPE_COLORS = {
   snack: 'bg-green-100 text-green-800 border-green-200',
 }
 
-export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRemoveMeal, onSwapMeal, onAdjustServings, setActiveTab, settings }) {
+// ── Macro adjust helpers ──────────────────────────────────────────────────────
+
+// Protein per calorie — how much protein a meal delivers per calorie spent
+function proteinEff(meal) {
+  return meal.macrosPerServing.protein / Math.max(meal.macrosPerServing.calories, 1)
+}
+
+// Uniform: every meal × same factor, 0.05 serving precision
+function computeUniform(meals, proteinTarget, currentProtein) {
+  const factor = currentProtein > 0 ? proteinTarget / currentProtein : 1
+  return meals.map(({ type, meal, servings }) => ({
+    type, meal,
+    currentServings: servings,
+    newServings: Math.max(0.25, Math.min(10, Math.round(servings * factor * 20) / 20)),
+  }))
+}
+
+// Smart: weight each meal by P:cal efficiency
+// When scaling UP:  high-efficiency meals grow more (more protein, fewer calories)
+// When scaling DOWN: low-efficiency meals shrink more (preserves the best protein sources)
+function computeSmart(meals, proteinTarget) {
+  const effs = meals.map(({ meal }) => proteinEff(meal))
+  const avg = effs.reduce((a, b) => a + b, 0) / (effs.length || 1)
+  const weights = effs.map(e => avg > 0 ? e / avg : 1)
+  const wPSum = meals.reduce((acc, { meal, servings }, i) =>
+    acc + servings * weights[i] * meal.macrosPerServing.protein, 0)
+  const k = wPSum > 0 ? proteinTarget / wPSum : 1
+  return meals.map(({ type, meal, servings }, i) => ({
+    type, meal,
+    currentServings: servings,
+    newServings: Math.max(0.25, Math.min(10, Math.round(servings * k * weights[i] * 20) / 20)),
+  }))
+}
+
+function sumMacros(adjs) {
+  return adjs.reduce((acc, { meal, newServings: s }) => ({
+    protein: acc.protein + meal.macrosPerServing.protein * s,
+    calories: acc.calories + meal.macrosPerServing.calories * s,
+    carbs: acc.carbs + meal.macrosPerServing.carbs * s,
+    fat: acc.fat + meal.macrosPerServing.fat * s,
+  }), { protein: 0, calories: 0, carbs: 0, fat: 0 })
+}
+
+// Top same-category meals by P:cal efficiency (excluding current meal)
+function getSwapAlts(meal, allMeals) {
+  return allMeals
+    .filter(m => m.category === meal.category && m.id !== meal.id)
+    .sort((a, b) => proteinEff(b) - proteinEff(a))
+    .slice(0, 3)
+}
+
+// Top snacks by P:cal efficiency
+function getTopSnacks(allMeals) {
+  return allMeals
+    .filter(m => m.category === 'snack')
+    .sort((a, b) => proteinEff(b) - proteinEff(a))
+    .slice(0, 3)
+}
+
+// Goal-aware calorie warning styling and messaging
+function getCalCtx(goal) {
+  if (goal === 'gain') return {
+    isBulking: true,
+    icon: '💪',
+    color: 'text-emerald-500',
+    bgLight: 'bg-emerald-50 border-emerald-200',
+    bgDark: 'bg-emerald-900/20 border-emerald-600',
+    label: 'calorie surplus',
+    note: "You're in a surplus — great for muscle gain and recovery",
+  }
+  if (goal === 'lose') return {
+    isBulking: false,
+    icon: '🚨',
+    color: 'text-red-500',
+    bgLight: 'bg-red-50 border-red-200',
+    bgDark: 'bg-red-900/20 border-red-700',
+    label: 'over calorie target',
+    note: 'Staying in deficit matters for fat loss — try Smart scale or swap a meal',
+  }
+  // maintain (default)
+  return {
+    isBulking: false,
+    icon: '⚠️',
+    color: 'text-amber-500',
+    bgLight: 'bg-amber-50 border-amber-200',
+    bgDark: 'bg-amber-900/20 border-amber-600',
+    label: 'over calorie target',
+    note: 'Try Smart scale or swap a meal to stay on track',
+  }
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export default function CalendarTab({
+  mealPlan, customMeals, onOpenRecipe, onRemoveMeal, onSwapMeal,
+  onAddMeals, onAdjustServings, setActiveTab, settings
+}) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState(toDateKey(new Date()))
   const [expandedMeal, setExpandedMeal] = useState(null)
-  const [swapping, setSwapping] = useState(null) // { dateKey, typeKey, typeInfo }
+  const [swapping, setSwapping] = useState(null)
   const [swapSearch, setSwapSearch] = useState('')
   const [adjusting, setAdjusting] = useState(false)
   const [adjustTarget, setAdjustTarget] = useState(200)
+  const [scaleMode, setScaleMode] = useState('uniform') // 'uniform' | 'smart'
 
   const dark = settings?.darkMode || false
   const allMeals = useMemo(() => [...MEALS, ...(customMeals || [])], [customMeals])
@@ -44,40 +142,35 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
 
   function findMeal(id) { return allMeals.find(m => m.id === id) }
 
-  // Reset adjust view when the selected day changes
+  // Reset adjust view whenever the selected day changes
   useEffect(() => { setAdjusting(false) }, [selectedDate])
 
   const selectedDateMeals = useMemo(() => {
     const dayPlan = mealPlan[selectedDate] || {}
-    return MEAL_TYPES
-      .map(type => {
-        const entry = dayPlan[type.key]
-        if (!entry) return null
-        const meal = findMeal(entry.mealId)
-        if (!meal) return null
-        return { type, meal, servings: entry.servings || 1 }
-      })
-      .filter(Boolean)
+    return MEAL_TYPES.map(type => {
+      const entry = dayPlan[type.key]
+      if (!entry) return null
+      const meal = findMeal(entry.mealId)
+      if (!meal) return null
+      return { type, meal, servings: entry.servings || 1 }
+    }).filter(Boolean)
   }, [selectedDate, mealPlan, allMeals])
 
-  const dayMacros = useMemo(() => {
-    return selectedDateMeals.reduce(
-      (acc, { meal, servings }) => ({
-        protein: acc.protein + meal.macrosPerServing.protein * servings,
-        calories: acc.calories + meal.macrosPerServing.calories * servings,
-        carbs: acc.carbs + meal.macrosPerServing.carbs * servings,
-        fat: acc.fat + meal.macrosPerServing.fat * servings,
-      }),
-      { protein: 0, calories: 0, carbs: 0, fat: 0 }
-    )
-  }, [selectedDateMeals])
+  const dayMacros = useMemo(() => selectedDateMeals.reduce(
+    (acc, { meal, servings }) => ({
+      protein: acc.protein + meal.macrosPerServing.protein * servings,
+      calories: acc.calories + meal.macrosPerServing.calories * servings,
+      carbs: acc.carbs + meal.macrosPerServing.carbs * servings,
+      fat: acc.fat + meal.macrosPerServing.fat * servings,
+    }),
+    { protein: 0, calories: 0, carbs: 0, fat: 0 }
+  ), [selectedDateMeals])
 
   const weekLabel = useMemo(() => {
     if (weekOffset === 0) return 'This Week'
     if (weekOffset === 1) return 'Next Week'
     if (weekOffset === -1) return 'Last Week'
-    const first = weekDates[0]
-    return first.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    return weekDates[0].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
   }, [weekDates, weekOffset])
 
   const selectedDateLabel = useMemo(() => {
@@ -91,42 +184,59 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
 
   function openAdjust() {
     setAdjustTarget(proteinTarget)
+    setScaleMode('uniform')
     setAdjusting(true)
   }
 
-  // ── Macro Adjust View ──────────────────────────────────────────────────────
+  // ── Macro Adjust View ─────────────────────────────────────────────────────
   if (adjusting) {
-    const scaleFactor = dayMacros.protein > 0 ? adjustTarget / dayMacros.protein : 1
+    // Guard: no meals means nothing to adjust
+    if (selectedDateMeals.length === 0) return (
+      <div className={`px-4 pt-5 ${bg} min-h-full`}>
+        <button type="button" onClick={() => setAdjusting(false)}
+          style={{ touchAction: 'manipulation' }}
+          className={`px-3 py-2 rounded-xl text-sm font-medium mb-6 ${dark ? 'bg-stone-700 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>
+          ← Back
+        </button>
+        <p className={`text-center text-sm ${sub}`}>No meals planned for this day.</p>
+      </div>
+    )
 
-    // Round each meal's servings to nearest 0.25, clamped to [0.25, 10]
-    const adjustments = selectedDateMeals.map(({ type, meal, servings }) => {
-      const rawNew = servings * scaleFactor
-      const rounded = Math.round(rawNew * 4) / 4
-      const newServings = Math.max(0.25, Math.min(10, rounded))
-      return { type, meal, currentServings: servings, newServings }
-    })
+    // Compute adjustments based on mode
+    const adjustments = scaleMode === 'smart'
+      ? computeSmart(selectedDateMeals, adjustTarget)
+      : computeUniform(selectedDateMeals, adjustTarget, dayMacros.protein)
 
-    // Project macros from the rounded servings (not ideal = scaleFactor × current, due to rounding)
-    const previewMacros = adjustments.reduce((acc, { meal, newServings }) => ({
-      protein: acc.protein + meal.macrosPerServing.protein * newServings,
-      calories: acc.calories + meal.macrosPerServing.calories * newServings,
-      carbs: acc.carbs + meal.macrosPerServing.carbs * newServings,
-      fat: acc.fat + meal.macrosPerServing.fat * newServings,
-    }), { protein: 0, calories: 0, carbs: 0, fat: 0 })
+    const preview = sumMacros(adjustments)
+    const calorieOverage = Math.round(preview.calories - calorieTarget)
+    const isOverCalories = calorieOverage > 30
+    const goal = settings?.profile?.goal || 'maintain'
+    const calCtx = getCalCtx(goal)
 
     const alreadyOnTarget = Math.abs(dayMacros.protein - adjustTarget) / Math.max(adjustTarget, 1) < 0.03
-    const previewHitsTarget = Math.abs(previewMacros.protein - adjustTarget) / Math.max(adjustTarget, 1) < 0.12
-    const scalingUp = scaleFactor > 1.02
+    const previewHitsTarget = Math.abs(preview.protein - adjustTarget) / Math.max(adjustTarget, 1) < 0.06
+
+    // Recommendations: only when over calories
+    const showRecs = isOverCalories
+    const sortedByEff = [...adjustments].sort((a, b) => proteinEff(a.meal) - proteinEff(b.meal))
+    const worstEntry = showRecs ? sortedByEff[0] : null
+    const swapAlts = worstEntry ? getSwapAlts(worstEntry.meal, allMeals) : []
+
+    // Snack recommendation: only when under protein AND over calories (adding snack
+    // lets you use a smaller scale factor → fewer excess calories from main meals)
+    const hasSnack = selectedDateMeals.some(m => m.type.key === 'snack')
+    const underProtein = dayMacros.protein < adjustTarget
+    const showSnackRec = showRecs && underProtein && !hasSnack && !calCtx.isBulking
+    const topSnacks = showSnackRec ? getTopSnacks(allMeals) : []
 
     return (
       <div className={`px-4 pt-5 pb-28 ${bg} min-h-full`}>
+
         {/* Header */}
         <div className="flex items-center gap-3 mb-5">
-          <button
-            type="button"
-            onClick={() => setAdjusting(false)}
+          <button type="button" onClick={() => setAdjusting(false)}
             style={{ touchAction: 'manipulation' }}
-            className={`px-3 py-2 rounded-xl text-sm font-medium cursor-pointer ${dark ? 'bg-stone-700 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>
+            className={`px-3 py-2 rounded-xl text-sm font-medium ${dark ? 'bg-stone-700 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>
             ← Back
           </button>
           <div>
@@ -135,25 +245,42 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
           </div>
         </div>
 
+        {/* Scale mode toggle */}
+        <div className={`flex rounded-xl p-1 mb-1 ${dark ? 'bg-stone-800' : 'bg-stone-100'}`}>
+          {[
+            { key: 'uniform', label: 'Uniform' },
+            { key: 'smart', label: '⚡ Smart' },
+          ].map(({ key, label }) => (
+            <button key={key} type="button"
+              onClick={() => setScaleMode(key)}
+              style={{ touchAction: 'manipulation' }}
+              className={`flex-1 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                scaleMode === key ? 'bg-emerald-600 text-white shadow-sm' : dark ? 'text-stone-400' : 'text-stone-500'
+              }`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p className={`text-xs text-center mb-4 ${sub}`}>
+          {scaleMode === 'uniform'
+            ? 'Same scale factor applied to every meal'
+            : 'High protein-per-calorie meals are scaled more favorably'}
+        </p>
+
         {/* Protein target input */}
         <div className={`rounded-2xl border p-4 mb-4 ${card}`}>
           <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${sub}`}>Protein Target</p>
           <div className="flex items-center gap-3 flex-wrap gap-y-2">
             <div className="flex items-center gap-2">
               <input
-                type="number"
-                value={adjustTarget}
-                min={1}
-                max={999}
+                type="number" value={adjustTarget} min={1} max={999}
                 onChange={e => setAdjustTarget(Math.max(1, Math.min(999, parseInt(e.target.value) || 1)))}
-                className={`w-20 px-3 py-2 border rounded-xl text-center font-bold text-xl focus:outline-none focus:border-emerald-400 ${dark ? 'bg-stone-700 border-stone-600 text-white' : 'bg-white border-stone-200 text-stone-900'}`}
+                className={`w-20 px-3 py-2 border rounded-xl text-center font-bold text-xl focus:outline-none focus:border-emerald-400 ${dark ? 'bg-stone-700 border-stone-600 text-white' : 'bg-white border-stone-200'}`}
               />
               <span className={`text-sm font-medium ${sub}`}>g protein</span>
             </div>
             {adjustTarget !== proteinTarget && (
-              <button
-                type="button"
-                onClick={() => setAdjustTarget(proteinTarget)}
+              <button type="button" onClick={() => setAdjustTarget(proteinTarget)}
                 style={{ touchAction: 'manipulation' }}
                 className={`text-xs px-3 py-1.5 rounded-lg ${dark ? 'bg-stone-700 text-stone-400' : 'bg-stone-100 text-stone-500'}`}>
                 Reset to {proteinTarget}g
@@ -162,7 +289,7 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
           </div>
         </div>
 
-        {/* Before → After preview */}
+        {/* Before / After preview */}
         <div className={`rounded-2xl border p-4 mb-4 ${card}`}>
           <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${sub}`}>Preview</p>
           <div className="grid grid-cols-2 gap-3 mb-2.5">
@@ -175,30 +302,132 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
             </div>
             {/* After */}
             <div className={`rounded-xl p-3 border-2 transition-colors ${
-              alreadyOnTarget || previewHitsTarget
-                ? (dark ? 'border-emerald-500 bg-emerald-900/20' : 'border-emerald-400 bg-emerald-50')
-                : (dark ? 'border-stone-600 bg-stone-700' : 'border-stone-200 bg-stone-50')
+              previewHitsTarget
+                ? dark ? 'border-emerald-500 bg-emerald-900/20' : 'border-emerald-400 bg-emerald-50'
+                : dark ? 'border-stone-600 bg-stone-700' : 'border-stone-200 bg-stone-50'
             }`}>
               <p className={`text-[10px] font-semibold uppercase tracking-wider ${sub} mb-2`}>After</p>
-              <p className={`font-bold text-2xl leading-none ${alreadyOnTarget || previewHitsTarget ? 'text-emerald-500' : 'text-blue-400'}`}>
-                {alreadyOnTarget ? Math.round(dayMacros.protein) : Math.round(previewMacros.protein)}g
+              <p className={`font-bold text-2xl leading-none ${previewHitsTarget ? 'text-emerald-500' : 'text-blue-400'}`}>
+                {Math.round(preview.protein)}g
               </p>
-              <p className={`text-xs mt-1 ${sub}`}>
-                {alreadyOnTarget ? Math.round(dayMacros.calories) : Math.round(previewMacros.calories)} cal
+              <p className={`text-xs mt-1 font-medium ${isOverCalories ? calCtx.color : sub}`}>
+                {Math.round(preview.calories)} cal
+                {isOverCalories && ` (+${calorieOverage})`}
               </p>
-              <p className={`text-[10px] uppercase tracking-wide mt-0.5 ${alreadyOnTarget || previewHitsTarget ? 'text-emerald-500' : sub}`}>
-                {alreadyOnTarget || previewHitsTarget ? '✓ on target' : 'projected'}
+              <p className={`text-[10px] uppercase tracking-wide mt-0.5 ${previewHitsTarget ? 'text-emerald-500' : sub}`}>
+                {previewHitsTarget ? '✓ on target' : 'projected'}
               </p>
             </div>
           </div>
           {alreadyOnTarget ? (
-            <p className="text-xs text-emerald-500 font-medium">✓ You're already hitting your protein target!</p>
+            <p className="text-xs text-emerald-500 font-medium">✓ Already at your protein target!</p>
           ) : (
             <p className={`text-xs ${sub}`}>
-              {scalingUp ? '↑' : '↓'} {scaleFactor.toFixed(2)}× scale applied to all meals · rounded to nearest ¼ serving
+              {scaleMode === 'uniform'
+                ? `${(adjustTarget / Math.max(dayMacros.protein, 1)).toFixed(2)}× uniform scale · ±0.05 serving precision`
+                : '⚡ Efficiency-weighted — preserves your best protein-per-calorie meals'}
             </p>
           )}
         </div>
+
+        {/* Calorie warning + recommendations */}
+        {showRecs && (
+          <div className={`rounded-2xl border p-4 mb-4 ${dark ? calCtx.bgDark : calCtx.bgLight}`}>
+
+            {/* Warning header */}
+            <div className="flex items-start gap-2 mb-4">
+              <span className="text-lg leading-none mt-0.5 flex-shrink-0">{calCtx.icon}</span>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-bold ${calCtx.color}`}>
+                  +{calorieOverage} cal {calCtx.label}
+                </p>
+                <p className={`text-xs mt-0.5 ${dark ? 'text-stone-400' : 'text-stone-600'}`}>{calCtx.note}</p>
+              </div>
+              {scaleMode === 'uniform' && !calCtx.isBulking && (
+                <button type="button" onClick={() => setScaleMode('smart')}
+                  style={{ touchAction: 'manipulation' }}
+                  className="flex-shrink-0 bg-emerald-600 active:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-semibold">
+                  Try ⚡ Smart
+                </button>
+              )}
+            </div>
+
+            {/* Swap suggestion */}
+            {!calCtx.isBulking && swapAlts.length > 0 && worstEntry && (
+              <div className="mb-4">
+                <p className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${dark ? 'text-stone-400' : 'text-stone-500'}`}>
+                  💡 Swap out: {worstEntry.meal.name}
+                </p>
+                <p className={`text-[10px] mb-2 ${dark ? 'text-stone-500' : 'text-stone-400'}`}>
+                  Lowest protein-per-calorie meal on your plan · tap to swap
+                </p>
+                <div className="space-y-1.5">
+                  {swapAlts.map(alt => {
+                    const calDiff = Math.round((alt.macrosPerServing.calories - worstEntry.meal.macrosPerServing.calories) * worstEntry.currentServings)
+                    const pDiff = Math.round((alt.macrosPerServing.protein - worstEntry.meal.macrosPerServing.protein) * worstEntry.currentServings)
+                    return (
+                      <button key={alt.id} type="button"
+                        onClick={() => onSwapMeal(selectedDate, worstEntry.type.key, alt, worstEntry.currentServings)}
+                        style={{ touchAction: 'manipulation' }}
+                        className={`w-full flex items-center gap-2.5 p-2.5 rounded-xl text-left active:opacity-70 ${dark ? 'bg-stone-700' : 'bg-white border border-stone-100'}`}>
+                        <span className="text-xl leading-none flex-shrink-0">{alt.emoji}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className={`text-xs font-semibold ${text} truncate`}>{alt.name}</p>
+                          <div className="flex gap-2 mt-0.5">
+                            <span className={`text-[10px] font-medium ${pDiff >= 0 ? 'text-blue-500' : 'text-blue-400'}`}>
+                              {pDiff >= 0 ? '+' : ''}{pDiff}g P
+                            </span>
+                            <span className={`text-[10px] font-medium ${calDiff < 0 ? 'text-emerald-500' : calDiff > 30 ? 'text-red-400' : sub}`}>
+                              {calDiff > 0 ? '+' : ''}{calDiff} cal
+                            </span>
+                          </div>
+                        </div>
+                        <span className={`text-xs ${sub}`}>→</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Snack suggestion */}
+            {showSnackRec && topSnacks.length > 0 && (
+              <div>
+                <p className={`text-[10px] font-bold uppercase tracking-wide mb-0.5 ${dark ? 'text-stone-400' : 'text-stone-500'}`}>
+                  🍎 Add a protein snack
+                </p>
+                <p className={`text-[10px] mb-2 ${dark ? 'text-stone-500' : 'text-stone-400'}`}>
+                  Adding a snack lets you scale up meals less → fewer excess calories
+                </p>
+                <div className="space-y-1.5">
+                  {topSnacks.slice(0, 2).map(snack => (
+                    <button key={snack.id} type="button"
+                      onClick={() => onAddMeals([{ dateKey: selectedDate, mealType: 'snack', meal: snack, servings: 1 }])}
+                      style={{ touchAction: 'manipulation' }}
+                      className={`w-full flex items-center gap-2.5 p-2.5 rounded-xl text-left active:opacity-70 ${dark ? 'bg-stone-700' : 'bg-white border border-stone-100'}`}>
+                      <span className="text-xl leading-none flex-shrink-0">{snack.emoji}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-semibold ${text} truncate`}>{snack.name}</p>
+                        <div className="flex gap-2 mt-0.5">
+                          <span className="text-[10px] font-medium text-blue-500">+{snack.macrosPerServing.protein}g P</span>
+                          <span className={`text-[10px] ${sub}`}>{snack.macrosPerServing.calories} cal</span>
+                        </div>
+                      </div>
+                      <span className="text-xs font-bold text-emerald-500">+ Add</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Bulking: no recs needed, just the positive note */}
+            {calCtx.isBulking && (
+              <p className={`text-xs ${dark ? 'text-stone-400' : 'text-stone-600'}`}>
+                A calorie surplus supports muscle growth — no changes needed unless you want to dial it in.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Per-meal breakdown */}
         <p className={`text-xs font-semibold uppercase tracking-wide mb-2.5 ${sub}`}>Per Meal</p>
@@ -209,7 +438,6 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
             const proteinAfter = Math.round(meal.macrosPerServing.protein * newServings)
             const colorClass = TYPE_COLORS[type.key] || 'bg-stone-100 text-stone-700 border-stone-200'
             const diff = newServings - currentServings
-            const servingColor = diff > 0.01 ? 'text-emerald-500' : diff < -0.01 ? 'text-amber-500' : text
             return (
               <div key={type.key} className={`rounded-2xl border p-3.5 ${card}`}>
                 <div className="flex items-center gap-3">
@@ -219,15 +447,15 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
                       {type.label}
                     </span>
                     <p className={`font-semibold text-sm mt-0.5 ${text} truncate`}>{meal.name}</p>
-                    {driver && (
-                      <p className={`text-[11px] ${sub}`}>↑ {driver.name}</p>
-                    )}
+                    {driver && <p className={`text-[11px] ${sub}`}>↑ {driver.name}</p>}
                   </div>
                   <div className="text-right flex-shrink-0 ml-2">
                     <div className="flex items-center justify-end gap-1.5 mb-0.5">
                       <span className={`text-sm ${sub}`}>{currentServings}×</span>
                       <span className={`text-xs ${sub}`}>→</span>
-                      <span className={`text-sm font-bold ${servingColor}`}>{newServings}×</span>
+                      <span className={`text-sm font-bold ${diff > 0.01 ? 'text-emerald-500' : diff < -0.01 ? 'text-amber-500' : text}`}>
+                        {newServings}×
+                      </span>
                     </div>
                     <p className="text-[11px]">
                       <span className="text-blue-400">{proteinBefore}g</span>
@@ -242,11 +470,9 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
           })}
         </div>
 
-        {/* Action */}
+        {/* Apply / Already on track */}
         {!alreadyOnTarget ? (
-          <button
-            type="button"
-            style={{ touchAction: 'manipulation' }}
+          <button type="button" style={{ touchAction: 'manipulation' }}
             onClick={() => {
               const result = {}
               adjustments.forEach(({ type, newServings }) => { result[type.key] = newServings })
@@ -257,9 +483,7 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
             Apply Adjustments
           </button>
         ) : (
-          <button
-            type="button"
-            style={{ touchAction: 'manipulation' }}
+          <button type="button" style={{ touchAction: 'manipulation' }}
             onClick={() => setAdjusting(false)}
             className={`w-full py-4 rounded-2xl font-bold text-base mb-3 ${dark ? 'bg-stone-700 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>
             Already on track ✓
@@ -272,7 +496,7 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
     )
   }
 
-  // ── Swap Meal View ─────────────────────────────────────────────────────────
+  // ── Swap Meal View ────────────────────────────────────────────────────────
   if (swapping) {
     const filteredSwap = allMeals.filter(m =>
       m.category === swapping.typeKey &&
@@ -451,15 +675,13 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
               </div>
             </div>
 
-            {/* Macro adjust CTA */}
+            {/* Adjust CTA */}
             <button
               type="button"
               onClick={openAdjust}
               style={{ touchAction: 'manipulation' }}
               className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold border transition-colors ${
-                dark
-                  ? 'border-stone-600 text-stone-300 bg-stone-700 active:bg-stone-600'
-                  : 'border-stone-200 text-stone-600 bg-stone-50 active:bg-stone-100'
+                dark ? 'border-stone-600 text-stone-300 bg-stone-700 active:bg-stone-600' : 'border-stone-200 text-stone-600 bg-stone-50 active:bg-stone-100'
               }`}>
               🎯 Adjust serving sizes to hit protein target
             </button>
@@ -469,6 +691,8 @@ export default function CalendarTab({ mealPlan, customMeals, onOpenRecipe, onRem
     </div>
   )
 }
+
+// ── Meal card ─────────────────────────────────────────────────────────────────
 
 function CalendarMealCard({ type, meal, servings, dark, isExpanded, onToggle, onOpenRecipe, onRemove, onSwap }) {
   const colorClass = TYPE_COLORS[type.key] || 'bg-stone-100 text-stone-700 border-stone-200'
