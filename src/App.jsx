@@ -3,6 +3,7 @@ import { supabase } from './lib/supabase'
 import { useAuth } from './context/AuthContext'
 import { addMealToGrocery } from './utils/mealUtils'
 import AuthPage from './components/AuthPage'
+import ChatTab from './components/ChatTab'
 import BottomNav from './components/BottomNav'
 import PlanTab from './components/PlanTab'
 import GroceryTab from './components/GroceryTab'
@@ -238,6 +239,7 @@ export default function App() {
       case 'plan': return <PlanTab {...tabProps} />
       case 'grocery': return <GroceryTab {...tabProps} />
       case 'calendar': return <CalendarTab {...tabProps} />
+      case 'chat': return <ChatTab settings={settings} />
       case 'recipes': return <RecipesTab {...tabProps} />
       case 'settings': return <SettingsTab {...tabProps} />
       default: return <PlanTab {...tabProps} />
