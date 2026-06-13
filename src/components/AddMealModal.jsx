@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MEAL_TYPES } from '../utils/mealUtils'
+import { MEAL_TYPES, ALLERGENS, DIETARY_FLAGS } from '../utils/mealUtils'
 
 const EMPTY_MEAL = {
   name: '',
@@ -15,6 +15,8 @@ const EMPTY_MEAL = {
   storageInstructions: '',
   reheatingInstructions: '',
   tags: ['custom'],
+  allergens: [],
+  dietaryFlags: [],
 }
 
 const EMOJI_OPTIONS = ['🍽️','🥩','🍗','🥚','🥣','🍝','🌮','🌯','🥙','🍱','🫕','🥘','🍛','🥗','🫙','🧆','🥞','🍜','🫔','🍔']
@@ -89,10 +91,10 @@ export default function AddMealModal({ onAdd, onClose }) {
         </button>
         <div>
           <h1 className="font-bold text-stone-900">Add Custom Meal</h1>
-          <p className="text-xs text-stone-400">Step {step} of 3</p>
+          <p className="text-xs text-stone-400">Step {step} of 4</p>
         </div>
         <div className="ml-auto flex gap-1">
-          {[1,2,3].map(s => (
+          {[1,2,3,4].map(s => (
             <span key={s} className={`w-2 h-2 rounded-full ${s === step ? 'bg-emerald-500' : s < step ? 'bg-emerald-200' : 'bg-stone-200'}`} />
           ))}
         </div>
@@ -252,6 +254,58 @@ export default function AddMealModal({ onAdd, onClose }) {
           </div>
         )}
 
+
+        {step === 4 && (
+          <div className="space-y-4">
+            <h2 className="font-semibold text-stone-800">Allergies & Dietary</h2>
+            <p className="text-xs text-stone-500">Tag your meal so filters work correctly. Custom meals without tags will always show up regardless of filters.</p>
+
+            <div>
+              <label className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2 block">Contains Allergens</label>
+              <div className="flex flex-wrap gap-2">
+                {ALLERGENS.map(({ key, label, emoji }) => {
+                  const active = (meal.allergens || []).includes(key)
+                  return (
+                    <button key={key} type="button"
+                      onClick={() => {
+                        const current = meal.allergens || []
+                        update('allergens', active ? current.filter(k => k !== key) : [...current, key])
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                        active ? 'bg-red-500 text-white border-red-500' : 'bg-white text-stone-600 border-stone-200'
+                      }`}>
+                      <span>{emoji}</span><span>{label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-semibold text-stone-500 uppercase tracking-wide mb-2 block">Dietary Flags</label>
+              <div className="flex flex-wrap gap-2">
+                {DIETARY_FLAGS.map(({ key, label, emoji }) => {
+                  const active = (meal.dietaryFlags || []).includes(key)
+                  return (
+                    <button key={key} type="button"
+                      onClick={() => {
+                        const current = meal.dietaryFlags || []
+                        update('dietaryFlags', active ? current.filter(k => k !== key) : [...current, key])
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                        active ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-stone-600 border-stone-200'
+                      }`}>
+                      <span>{emoji}</span><span>{label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            <p className="text-xs text-stone-400 italic">Not sure? Leave blank — you can still see this meal when browsing.</p>
+          </div>
+        )}
+
         {step === 3 && (
           <div className="space-y-4">
             <h2 className="font-semibold text-stone-800">Instructions & Notes</h2>
@@ -311,7 +365,7 @@ export default function AddMealModal({ onAdd, onClose }) {
             Back
           </button>
         )}
-        {step < 3 ? (
+        {step < 4 ? (
           <button
             onClick={() => setStep(s => s + 1)}
             disabled={step === 1 && !meal.name.trim()}

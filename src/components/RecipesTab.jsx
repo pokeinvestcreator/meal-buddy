@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { MEALS } from '../data/meals'
-import { MEAL_TYPES } from '../utils/mealUtils'
+import { MEAL_TYPES, filterMealsByDietary, ALLERGENS, DIETARY_FLAGS } from '../utils/mealUtils'
 
 function HeartIcon({ filled }) {
   return (
@@ -63,15 +63,18 @@ function MealCard({ meal, isFavorite, onFavorite, onOpenRecipe, onDelete, isCust
   )
 }
 
-export default function RecipesTab({ favorites, customMeals, onToggleFavorite, onOpenRecipe, onShowAddMeal, onDeleteCustomMeal }) {
+export default function RecipesTab({ favorites, customMeals, onToggleFavorite, onOpenRecipe, onShowAddMeal, onDeleteCustomMeal, settings }) {
   const [search, setSearch] = useState('')
   const [filterType, setFilterType] = useState('all')
   const [showFavs, setShowFavs] = useState(false)
 
+  const dark = settings?.darkMode || false
   const allMeals = useMemo(() => [...MEALS, ...customMeals], [customMeals])
+  const filtersActive = (settings?.dietary?.avoidAllergens || []).length > 0 || (settings?.dietary?.dietaryPreferences || []).length > 0
 
   const filtered = useMemo(() => {
-    return allMeals.filter(m => {
+    const dietaryFiltered = filterMealsByDietary(allMeals, settings)
+    return dietaryFiltered.filter(m => {
       const matchesType = filterType === 'all' || m.category === filterType
       const matchesSearch = !search || m.name.toLowerCase().includes(search.toLowerCase())
       const matchesFav = !showFavs || favorites.includes(m.id)
@@ -144,6 +147,7 @@ export default function RecipesTab({ favorites, customMeals, onToggleFavorite, o
           {filtered.length} recipe{filtered.length !== 1 ? 's' : ''}
           {showFavs ? ' · Favorites' : ''}
           {filterType !== 'all' ? ` · ${MEAL_TYPES.find(t => t.key === filterType)?.label}` : ''}
+          {filtersActive ? ' · Dietary filters on' : ''}
         </p>
       </div>
 

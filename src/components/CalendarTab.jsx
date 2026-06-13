@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { MEAL_TYPES, toDateKey, getProteinDriverIngredient } from '../utils/mealUtils'
+import { MEAL_TYPES, toDateKey, getProteinDriverIngredient, filterMealsByDietary } from '../utils/mealUtils'
 import { MEALS } from '../data/meals'
 
 // ── Week helper ───────────────────────────────────────────────────────────────
@@ -220,14 +220,15 @@ export default function CalendarTab({
     const showRecs = isOverCalories
     const sortedByEff = [...adjustments].sort((a, b) => proteinEff(a.meal) - proteinEff(b.meal))
     const worstEntry = showRecs ? sortedByEff[0] : null
-    const swapAlts = worstEntry ? getSwapAlts(worstEntry.meal, allMeals) : []
+    const safeMeals = filterMealsByDietary(allMeals, settings)
+    const swapAlts = worstEntry ? getSwapAlts(worstEntry.meal, safeMeals) : []
 
     // Snack recommendation: only when under protein AND over calories (adding snack
     // lets you use a smaller scale factor → fewer excess calories from main meals)
     const hasSnack = selectedDateMeals.some(m => m.type.key === 'snack')
     const underProtein = dayMacros.protein < adjustTarget
     const showSnackRec = showRecs && underProtein && !hasSnack && !calCtx.isBulking
-    const topSnacks = showSnackRec ? getTopSnacks(allMeals) : []
+    const topSnacks = showSnackRec ? getTopSnacks(safeMeals) : []
 
     return (
       <div className={`px-4 pt-5 pb-28 ${bg} min-h-full`}>
@@ -498,7 +499,8 @@ export default function CalendarTab({
 
   // ── Swap Meal View ────────────────────────────────────────────────────────
   if (swapping) {
-    const filteredSwap = allMeals.filter(m =>
+    const dietarySafe = filterMealsByDietary(allMeals, settings)
+    const filteredSwap = dietarySafe.filter(m =>
       m.category === swapping.typeKey &&
       (!swapSearch || m.name.toLowerCase().includes(swapSearch.toLowerCase()))
     )

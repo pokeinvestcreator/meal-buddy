@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ALLERGENS, DIETARY_FLAGS } from '../utils/mealUtils'
 
 const DAY_OPTIONS = [
   { id: 'monday', label: 'Monday' },
@@ -97,6 +98,19 @@ export default function SettingsTab({ settings, setSettings, onSignOut, userEmai
       ? current.filter(d => d !== dayId)
       : [...current, dayId]
     )
+  }
+
+
+  function toggleAllergen(key) {
+    const current = settings?.dietary?.avoidAllergens || []
+    const updated = current.includes(key) ? current.filter(k => k !== key) : [...current, key]
+    setSettings(prev => ({ ...prev, dietary: { ...(prev.dietary || {}), avoidAllergens: updated } }))
+  }
+
+  function toggleDietaryPref(key) {
+    const current = settings?.dietary?.dietaryPreferences || []
+    const updated = current.includes(key) ? current.filter(k => k !== key) : [...current, key]
+    setSettings(prev => ({ ...prev, dietary: { ...(prev.dietary || {}), dietaryPreferences: updated } }))
   }
 
   function togglePreferredFood(food) {
@@ -394,6 +408,55 @@ export default function SettingsTab({ settings, setSettings, onSignOut, userEmai
         {/* ── PREFERENCES ── */}
         {activeSection === 'preferences' && (
           <>
+
+            <section>
+              <h2 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${label}`}>Allergies</h2>
+              <div className={`${card} border rounded-2xl p-4 mb-1`}>
+                <p className={`text-xs ${subtext} mb-3`}>Meals containing these will be hidden from all meal browsers.</p>
+                <div className="flex flex-wrap gap-2">
+                  {ALLERGENS.map(({ key, label: aLabel, emoji }) => {
+                    const active = (settings?.dietary?.avoidAllergens || []).includes(key)
+                    return (
+                      <button key={key} type="button" onClick={() => toggleAllergen(key)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                          active
+                            ? 'bg-red-500 text-white border-red-500'
+                            : dark ? 'bg-stone-700 text-stone-300 border-stone-600' : 'bg-white text-stone-600 border-stone-200'
+                        }`}>
+                        <span>{emoji}</span>
+                        <span>{aLabel}</span>
+                        {active && <span className="ml-0.5">✕</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <h2 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${label}`}>Dietary Preferences</h2>
+              <div className={`${card} border rounded-2xl p-4 mb-1`}>
+                <p className={`text-xs ${subtext} mb-3`}>Only show meals that match all selected preferences.</p>
+                <div className="flex flex-wrap gap-2">
+                  {DIETARY_FLAGS.map(({ key, label: dLabel, emoji }) => {
+                    const active = (settings?.dietary?.dietaryPreferences || []).includes(key)
+                    return (
+                      <button key={key} type="button" onClick={() => toggleDietaryPref(key)}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                          active
+                            ? 'bg-emerald-600 text-white border-emerald-600'
+                            : dark ? 'bg-stone-700 text-stone-300 border-stone-600' : 'bg-white text-stone-600 border-stone-200'
+                        }`}>
+                        <span>{emoji}</span>
+                        <span>{dLabel}</span>
+                        {active && <span className="ml-0.5">✓</span>}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </section>
+
             <section>
               <h2 className={`text-xs font-semibold uppercase tracking-wide mb-3 ${label}`}>Foods I Like</h2>
               <div className={`${card} border rounded-2xl p-4`}>

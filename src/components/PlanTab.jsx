@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { MEALS } from '../data/meals'
-import { MEAL_TYPES, getWeekDates, toDateKey, getProteinDriverIngredient } from '../utils/mealUtils'
+import { MEAL_TYPES, getWeekDates, toDateKey, getProteinDriverIngredient, filterMealsByDietary } from '../utils/mealUtils'
 
 // ── Macro analysis helpers ────────────────────────────────────────────────────
 
@@ -42,15 +42,17 @@ function sumMacros(adjs) {
   }), { protein: 0, calories: 0, carbs: 0, fat: 0 })
 }
 
-function getSwapAlts(meal, allMeals) {
-  return allMeals
+function getSwapAlts(meal, allMeals, settings) {
+  const safe = filterMealsByDietary(allMeals, settings)
+  return safe
     .filter(m => m.category === meal.category && m.id !== meal.id)
     .sort((a, b) => proteinEff(b) - proteinEff(a))
     .slice(0, 3)
 }
 
-function getTopSnacks(allMeals) {
-  return allMeals
+function getTopSnacks(allMeals, settings) {
+  const safe = filterMealsByDietary(allMeals, settings)
+  return safe
     .filter(m => m.category === 'snack')
     .sort((a, b) => proteinEff(b) - proteinEff(a))
     .slice(0, 3)
@@ -111,8 +113,9 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
   const canProceed1 = selectedDates.length > 0 && selectedTypes.length > 0
   const canProceed2 = selectedTypes.every(t => mealSelections[t])
 
+  const dietaryAllMeals = filterMealsByDietary(allMeals, settings)
   const filteredMeals = browsingType
-    ? allMeals.filter(m => m.category === browsingType && (!searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase())))
+    ? dietaryAllMeals.filter(m => m.category === browsingType && (!searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase())))
     : []
 
   // Per-day macro totals — all days identical since same meals apply
@@ -596,10 +599,10 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
     .map(tk => ({ typeKey: tk, meal: mealSelections[tk], currentServings: servings[tk] || 1 }))
   const sortedByEff = [...mealEntries].sort((a, b) => proteinEff(a.meal) - proteinEff(b.meal))
   const worstEntry = (isOverCalories && !calCtx.isBulking) ? sortedByEff[0] : null
-  const swapAlts = worstEntry ? getSwapAlts(worstEntry.meal, allMeals) : []
+  const swapAlts = worstEntry ? getSwapAlts(worstEntry.meal, allMeals, settings) : []
   const hasSnack = selectedTypes.includes('snack')
   const showSnackRec = isUnderProtein && !hasSnack && !calCtx.isBulking
-  const topSnacks = showSnackRec ? getTopSnacks(allMeals) : []
+  const topSnacks = showSnackRec ? getTopSnacks(allMeals, settings) : []
 
   return (
     <div className={`px-4 pt-5 pb-6 ${bg} min-h-full`}>
