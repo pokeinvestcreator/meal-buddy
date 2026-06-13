@@ -43,7 +43,6 @@ export function findMeal(id, customMeals = []) {
 }
 
 // ── Serving scale ─────────────────────────────────────────────────────────────
-// scaledGrams: ingredient.grams * (requestedServings / meal.servings)
 
 export function scaleIngredient(ingredient, requestedServings, baseServings) {
   const factor = requestedServings / baseServings;
@@ -56,10 +55,6 @@ export function scaleIngredient(ingredient, requestedServings, baseServings) {
 
 // ── Grocery list helpers ──────────────────────────────────────────────────────
 
-/**
- * Adds a meal to the grocery list state.
- * Deduplicates by ingredient name (lowercased, trimmed).
- */
 export function addMealToGrocery(groceryList, meal, requestedServings, datesAdded) {
   const updated = { ...groceryList };
 
@@ -68,7 +63,6 @@ export function addMealToGrocery(groceryList, meal, requestedServings, datesAdde
     const scaled = scaleIngredient(ing, requestedServings, meal.servings);
 
     if (updated[key]) {
-      // Merge: add amounts, keep union of dates/meals
       updated[key] = {
         ...updated[key],
         grams: Math.round((updated[key].grams + scaled.grams) * 10) / 10,
@@ -98,6 +92,29 @@ export function normalizeIngredientKey(name) {
   return name.toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
+/**
+ * Rebuilds the entire grocery list from scratch by scanning the full mealPlan.
+ * Call this after adjusting servings so quantities stay accurate.
+ * Pass the old grocery list separately to preserve .checked states.
+ *
+ * Usage in App.jsx:
+ *   const rebuilt = rebuildGroceryFromPlan(newMealPlan, customMeals)
+ *   // then merge checked states before calling updateGroceryList
+ */
+export function rebuildGroceryFromPlan(mealPlan, customMeals = []) {
+  const allMeals = [...MEALS, ...customMeals];
+  let grocery = {};
+  Object.entries(mealPlan).forEach(([dateKey, dayPlan]) => {
+    Object.entries(dayPlan).forEach(([, entry]) => {
+      if (!entry?.mealId) return;
+      const meal = allMeals.find((m) => m.id === entry.mealId);
+      if (!meal) return;
+      grocery = addMealToGrocery(grocery, meal, entry.servings || 1, [dateKey]);
+    });
+  });
+  return grocery;
+}
+
 // ── Macro totals ──────────────────────────────────────────────────────────────
 
 export function scaleMacros(macros, requestedServings, baseServings) {
@@ -112,20 +129,12 @@ export function scaleMacros(macros, requestedServings, baseServings) {
 
 // ── Protein driver ────────────────────────────────────────────────────────────
 
-/**
- * Returns the ingredient most responsible for the meal's protein content.
- * Prefers ingredients with category='protein' (chicken, turkey, eggs, whey, etc.).
- * Falls back to the heaviest ingredient overall if no protein-category ingredient exists.
- * Used in macro adjustment UI to show "Scaling up: Ground turkey breast".
- */
 export function getProteinDriverIngredient(meal) {
   if (!meal.ingredients || meal.ingredients.length === 0) return null;
   const proteinIngs = meal.ingredients.filter((i) => i.category === 'protein');
   if (proteinIngs.length > 0) {
-    // Pick the protein-category ingredient with the most grams (best proxy for protein contribution)
     return proteinIngs.reduce((max, i) => (i.grams > max.grams ? i : max));
   }
-  // Fallback: heaviest ingredient (e.g. custom meals without category labelling)
   return meal.ingredients.reduce((max, i) => (i.grams > max.grams ? i : max));
 }
 
