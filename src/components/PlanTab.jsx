@@ -1,5 +1,4 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { MEALS } from '../data/meals'
 import { MEAL_TYPES, getWeekDates, toDateKey, getProteinDriverIngredient } from '../utils/mealUtils'
 import { MEALS } from '../data/meals'
 import { searchRecipes, hasApiKey } from '../services/spoonacular'
