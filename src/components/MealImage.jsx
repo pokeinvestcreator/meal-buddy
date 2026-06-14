@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useMealPhotos } from '../context/PhotoContext'
 
 const SIZES = {
@@ -11,29 +11,44 @@ const SIZES = {
 
 export default function MealImage({ meal, size = 'md', className = '' }) {
   const { photos, requestPhoto } = useMealPhotos()
+  const ref = useRef(null)
 
-  // Trigger a fetch the first time this meal is rendered
   useEffect(() => {
-    requestPhoto(meal)
+    // Only fetch when meal card scrolls into view (IntersectionObserver)
+    // This prevents all 200 photos from being requested at once
+    if (!ref.current || meal?.photoUrl) return
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          requestPhoto(meal)
+          observer.disconnect()
+        }
+      },
+      { threshold: 0.1 }
+    )
+
+    observer.observe(ref.current)
+    return () => observer.disconnect()
   }, [meal?.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const photoUrl = meal?.photoUrl || photos[meal?.id]
   const sizeClass = SIZES[size] || SIZES.md
 
-  if (!photoUrl) {
-    return (
-      <div className={`${sizeClass} ${className} bg-stone-100 dark:bg-stone-800 rounded-xl flex items-center justify-center flex-shrink-0`}>
-        <span>{meal?.emoji || '🍽️'}</span>
-      </div>
-    )
-  }
-
   return (
-    <img
-      src={photoUrl}
-      alt={meal?.name || ''}
-      loading="lazy"
-      className={`${sizeClass} ${className} object-cover rounded-xl flex-shrink-0`}
-    />
+    <div ref={ref} className={`${sizeClass} ${className} flex-shrink-0 overflow-hidden rounded-xl bg-stone-100 dark:bg-stone-800`}>
+      {photoUrl ? (
+        <img
+          src={photoUrl}
+          alt={meal?.name || ''}
+          loading="lazy"
+          className="w-full h-full object-cover"
+        />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center">
+          <span>{meal?.emoji || '🍽️'}</span>
+        </div>
+      )}
+    </div>
   )
 }

@@ -48,7 +48,7 @@ export function PhotoProvider({ children }) {
 
     // Rate-limit: 200ms between requests (~5/sec, well within Pexels free tier)
     if (queue.current.length > 0) {
-      timer.current = setTimeout(processNext, 200)
+      timer.current = setTimeout(processNext, 1500)
     }
   }, [])
 
