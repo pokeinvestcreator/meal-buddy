@@ -18,17 +18,13 @@ function RecipeCard({ meal, isFavorite, onFavorite, onOpenRecipe, onDelete, isCu
   const card = dark ? 'bg-stone-800 border-stone-700' : 'bg-white border-stone-200'
   const text = dark ? 'text-white' : 'text-stone-900'
   const sub  = dark ? 'text-stone-400' : 'text-stone-400'
-  const hasPhoto = meal.photoUrl || meal.isSpoonacular
   return (
     <div className={`border rounded-2xl overflow-hidden ${card}`}>
-      {hasPhoto && (
-        <div className="w-full h-36 overflow-hidden">
-          <MealImage meal={meal} size="hero" className="!h-36 !rounded-none" />
-        </div>
-      )}
+      <div className="w-full h-36 overflow-hidden">
+        <MealImage meal={meal} size="hero" className="!h-36 !rounded-none" />
+      </div>
       <div className="p-3.5">
         <div className="flex items-start gap-2 mb-2">
-          {!hasPhoto && <span className="text-3xl leading-none mt-0.5 flex-shrink-0">{meal.emoji}</span>}
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
               <div className="flex-1 min-w-0">
