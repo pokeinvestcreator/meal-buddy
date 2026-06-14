@@ -28,12 +28,15 @@ export function PhotoProvider({ children }) {
 
     try {
       const res = await fetch(
-        `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=1&orientation=landscape`,
+        `https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=5&orientation=landscape`,
         { headers: { Authorization: PEXELS_KEY() } }
       )
       if (res.ok) {
         const data = await res.json()
-        const url = data.photos?.[0]?.src?.medium
+        // Pick photo by ID so similar queries get different images
+        const charSum = id.split('').reduce((s, c) => s + c.charCodeAt(0), 0)
+        const idx = charSum % (data.photos?.length || 1)
+        const url = data.photos?.[idx]?.src?.medium
         if (url) {
           setPhotos(prev => {
             const next = { ...prev, [id]: url }
