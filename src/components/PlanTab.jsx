@@ -1,6 +1,9 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { MEALS } from '../data/meals'
-import { MEAL_TYPES, getWeekDates, toDateKey, getProteinDriverIngredient, filterMealsByDietary } from '../utils/mealUtils'
+import { MEAL_TYPES, getWeekDates, toDateKey, getProteinDriverIngredient } from '../utils/mealUtils'
+import { MEALS } from '../data/meals'
+import { searchRecipes, hasApiKey } from '../services/spoonacular'
+import { transformRecipe } from '../utils/recipeTransform'
 import MealImage from './MealImage'
 
 // ── Macro analysis helpers ────────────────────────────────────────────────────
@@ -88,7 +91,7 @@ function getCalCtx(goal) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export default function PlanTab({ customMeals, onAddMeals, setActiveTab, settings }) {
+export default function PlanTab({ customMeals, onAddMeals, setActiveTab, settings, onSaveRecipe, savedRecipes = {} }) {
   const [step, setStep] = useState(1)
   const [selectedDates, setSelectedDates] = useState([])
   const [selectedTypes, setSelectedTypes] = useState([])
@@ -103,6 +106,30 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
   const [scaleMode, setScaleMode] = useState('uniform')
 
   const allMeals = useMemo(() => [...MEALS, ...(customMeals || [])], [customMeals])
+
+  // Spoonacular browse state
+  const [browseResults, setBrowseResults] = useState([])
+  const [browseLoading, setBrowseLoading] = useState(false)
+  const [browseError, setBrowseError] = useState(null)
+  const [browseTotal, setBrowseTotal] = useState(0)
+  const [browseOffset, setBrowseOffset] = useState(0)
+  const searchTimer = useRef(null)
+
+  // Only fetch Spoonacular when user actively searches (has text) and has API key
+  useEffect(() => {
+    if (!browsingType || !searchQuery.trim()) {
+      setBrowseResults([])
+      setBrowseOffset(0)
+      setBrowseError(null)
+      return
+    }
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => {
+      fetchBrowse(0, searchQuery, browsingType)
+    }, 500)
+    return () => clearTimeout(searchTimer.current)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browsingType, searchQuery])
   const weekDates = useMemo(() => getWeekDates(), [])
   const todayKey = toDateKey(new Date())
   const dark = settings?.darkMode || false
@@ -114,10 +141,11 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
   const canProceed1 = selectedDates.length > 0 && selectedTypes.length > 0
   const canProceed2 = selectedTypes.every(t => mealSelections[t])
 
-  const dietaryAllMeals = filterMealsByDietary(allMeals, settings)
-  const filteredMeals = browsingType
-    ? dietaryAllMeals.filter(m => m.category === browsingType && (!searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase())))
-    : []
+  // Default meals filtered by category (shown before/without search)
+  const defaultMeals = useMemo(() => {
+    if (!browsingType) return []
+    return [...MEALS, ...(customMeals || [])].filter(m => m.category === browsingType)
+  }, [browsingType, customMeals])
 
   // Per-day macro totals — all days identical since same meals apply
   const dayMacros = useMemo(() => {
@@ -156,6 +184,26 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
     if (sel.length > 0) { onAddMeals(sel); reset(); setTimeout(() => setActiveTab('calendar'), 600) }
   }
 
+  async function fetchBrowse(offset = 0, query = searchQuery, type = browsingType) {
+    if (!hasApiKey() || !type) return
+    setBrowseLoading(true)
+    setBrowseError(null)
+    try {
+      const allergens = settings?.dietary?.avoidAllergens || []
+      const dietaryPrefs = settings?.dietary?.dietaryPreferences || []
+      const { results, total } = await searchRecipes({ query, category: type, allergens, dietaryPrefs, number: 20, offset })
+      const meals = results.map(r => transformRecipe(r, type))
+      setBrowseResults(prev => offset === 0 ? meals : [...prev, ...meals])
+      setBrowseTotal(total)
+      setBrowseOffset(offset)
+    } catch (err) {
+      setBrowseError(err.message)
+    } finally {
+      setBrowseLoading(false)
+    }
+  }
+
+  // Fetch Spoonacular results when browse opens or search changes
   function openAdjust() {
     setAdjustTarget(proteinTarget)
     setScaleMode('uniform')
@@ -173,25 +221,72 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
   // ── MEAL BROWSER ──────────────────────────────────────────────────────────────
   if (browsingType) {
     const typeInfo = MEAL_TYPES.find(t => t.key === browsingType)
+    const canLoadMore = browseResults.length > 0 && browseResults.length < browseTotal && !browseLoading
+    const noKey = !hasApiKey()
+
     return (
       <div className={`px-4 pt-5 pb-6 ${bg} min-h-full`}>
+        {/* Header */}
         <div className="flex items-center gap-3 mb-5">
-          <button type="button" style={btnStyle} onClick={() => { setBrowsingType(null); setSearchQuery('') }}
+          <button type="button" style={btnStyle}
+            onClick={() => { setBrowsingType(null); setSearchQuery(''); setBrowseResults([]); setBrowseTotal(0) }}
             className={`p-2 rounded-xl cursor-pointer ${dark ? 'bg-stone-700 text-stone-300' : 'bg-stone-100 text-stone-600'}`}>
             ← Back
           </button>
           <div>
             <h2 className={`font-bold text-lg ${text}`}>{typeInfo?.emoji} {typeInfo?.label}</h2>
-            <p className={`text-xs ${sub}`}>Tap a meal to select it</p>
+            <p className={`text-xs ${sub}`}>{searchQuery.trim() ? (browseTotal > 0 ? `${browseTotal.toLocaleString()} recipes` : (browseLoading ? 'Searching...' : '')) : `${defaultMeals.length} recipes`}</p>
           </div>
         </div>
 
-        <input type="text" placeholder="Search meals..." value={searchQuery}
+        {/* Search */}
+        <input type="text" placeholder={`Search ${typeInfo?.label?.toLowerCase() || 'recipes'}...`} value={searchQuery}
           onChange={e => setSearchQuery(e.target.value)}
           className={`w-full px-4 py-2.5 border rounded-xl text-sm mb-4 focus:outline-none focus:border-emerald-400 ${inputCls}`} />
 
+        {/* No API key — only show when user tries to search */}
+        {noKey && searchQuery.trim() && (
+          <div className={`rounded-2xl border p-5 text-center ${card}`}>
+            <p className="text-3xl mb-2">🔑</p>
+            <p className={`font-semibold text-sm mb-1 ${text}`}>Spoonacular API key needed</p>
+            <p className={`text-xs ${sub}`}>Get a free key at spoonacular.com/food-api then add VITE_SPOONACULAR_API_KEY to Vercel</p>
+          </div>
+        )}
+
+        {/* Error */}
+        {browseError && !noKey && (
+          <div className={`rounded-2xl border p-4 mb-4 ${dark ? 'bg-red-900/20 border-red-700' : 'bg-red-50 border-red-200'}`}>
+            <p className={`text-sm font-semibold ${dark ? 'text-red-300' : 'text-red-600'}`}>
+              {browseError === 'QUOTA_EXCEEDED' ? '⚠️ Daily recipe limit reached — try again tomorrow' : '⚠️ Could not load recipes'}
+            </p>
+            <button type="button" style={btnStyle} onClick={() => fetchBrowse(0)}
+              className="text-xs text-emerald-600 font-semibold mt-2">Retry</button>
+          </div>
+        )}
+
+        {/* Skeleton loading */}
+        {browseLoading && browseResults.length === 0 && (
+          <div className="space-y-3">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className={`rounded-2xl p-3.5 animate-pulse ${dark ? 'bg-stone-800' : 'bg-stone-100'}`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-16 h-16 rounded-xl flex-shrink-0 ${dark ? 'bg-stone-700' : 'bg-stone-200'}`} />
+                  <div className="flex-1 space-y-2">
+                    <div className={`h-3 rounded w-3/4 ${dark ? 'bg-stone-700' : 'bg-stone-200'}`} />
+                    <div className={`h-2 rounded w-1/2 ${dark ? 'bg-stone-700' : 'bg-stone-200'}`} />
+                    <div className={`h-2 rounded w-1/3 ${dark ? 'bg-stone-700' : 'bg-stone-200'}`} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Results: curated defaults (no search) or Spoonacular results (with search) */}
         <div className="space-y-2.5">
-          {filteredMeals.map(meal => {
+          {(searchQuery.trim() ? browseResults : defaultMeals.filter(m =>
+            !searchQuery || m.name.toLowerCase().includes(searchQuery.toLowerCase())
+          )).map(meal => {
             const m = meal.macrosPerServing
             const isSel = mealSelections[browsingType]?.id === meal.id
             return (
@@ -199,14 +294,18 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
                 onClick={() => {
                   setMealSelections(p => ({ ...p, [browsingType]: meal }))
                   if (!servings[browsingType]) setServings(p => ({ ...p, [browsingType]: selectedDates.length || 1 }))
+                  onSaveRecipe?.(meal)
                   setBrowsingType(null)
+                  setBrowseResults([])
                 }}
-                className={`w-full text-left rounded-2xl border-2 p-3.5 cursor-pointer ${isSel ? 'border-emerald-500 bg-emerald-50' : `border-transparent ${card}`}`}>
+                className={`w-full text-left rounded-2xl border-2 p-3.5 cursor-pointer ${
+                  isSel ? 'border-emerald-500 ' + (dark ? 'bg-emerald-900/20' : 'bg-emerald-50') : 'border-transparent ' + card
+                }`}>
                 <div className="flex items-start gap-3">
                   <MealImage meal={meal} size="lg" />
-                  <div className="flex-1">
-                    <p className={`font-semibold text-sm ${isSel ? 'text-emerald-700' : text}`}>{meal.name} {isSel ? '✓' : ''}</p>
-                    <p className={`text-[11px] ${sub}`}>{meal.prepTime + meal.cookTime}min · {m.calories}cal</p>
+                  <div className="flex-1 min-w-0">
+                    <p className={`font-semibold text-sm leading-tight mb-0.5 ${isSel ? 'text-emerald-600' : text}`}>{meal.name} {isSel ? '✓' : ''}</p>
+                    <p className={`text-[11px] ${sub}`}>{meal.prepTime + meal.cookTime} min · {m.calories} cal · serves {meal.servings}</p>
                     <div className="flex gap-2.5 mt-1">
                       <span className="text-[11px] font-semibold text-blue-500">P {m.protein}g</span>
                       <span className="text-[11px] font-semibold text-amber-500">C {m.carbs}g</span>
@@ -217,8 +316,19 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
               </button>
             )
           })}
-          {filteredMeals.length === 0 && <p className={`text-center text-sm py-8 ${sub}`}>No meals found</p>}
         </div>
+
+        {/* Load more — only when searching via Spoonacular */}
+        {canLoadMore && (
+          <button type="button" style={btnStyle} onClick={() => fetchBrowse(browseOffset + 20)}
+            className={`w-full mt-4 py-3 rounded-2xl text-sm font-semibold border ${dark ? 'border-stone-600 text-stone-300' : 'border-stone-200 text-stone-600'}`}>
+            {browseLoading ? 'Loading...' : `Load more (${browseTotal - browseResults.length} remaining)`}
+          </button>
+        )}
+
+        {!browseLoading && browseResults.length === 0 && !browseError && !noKey && searchQuery && (
+          <p className={`text-center text-sm py-8 ${sub}`}>No recipes found — try a different search</p>
+        )}
       </div>
     )
   }

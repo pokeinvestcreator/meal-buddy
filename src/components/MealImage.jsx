@@ -13,7 +13,7 @@ import { useMealPhotos } from '../context/PhotoContext'
  */
 export default function MealImage({ meal, size = 'md', className = '' }) {
   const photos = useMealPhotos()
-  const photoUrl = photos[meal?.id]
+  const photoUrl = meal?.photoUrl || photos[meal?.id]
   const [error, setError] = useState(false)
 
   const show = photoUrl && !error

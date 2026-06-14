@@ -43,6 +43,7 @@ export default function App() {
   const [customMeals, setCustomMeals] = useState([])
   const [settings, setSettings] = useState(DEFAULT_SETTINGS)
   const [modalMeal, setModalMeal] = useState(null)
+  const [savedRecipes, setSavedRecipes] = useState({})
   const [showAddMeal, setShowAddMeal] = useState(false)
   const [toast, setToast] = useState(null)
   const saveTimer = useRef(null)
@@ -68,9 +69,10 @@ export default function App() {
         const fv = data.favorites || []
         const cm = data.custom_meals || []
         const st = { ...DEFAULT_SETTINGS, ...(data.settings || {}) }
+        const sr = data.saved_recipes || {}
         setMealPlan(mp); setGroceryList(gl); setFavorites(fv)
-        setCustomMeals(cm); setSettings(st)
-        currentData.current = { meal_plan: mp, grocery_list: gl, favorites: fv, custom_meals: cm, settings: st }
+        setCustomMeals(cm); setSettings(st); setSavedRecipes(sr)
+        currentData.current = { meal_plan: mp, grocery_list: gl, favorites: fv, custom_meals: cm, settings: st, saved_recipes: sr }
       }
     } catch (e) { console.error('Load error:', e) }
     setDataLoading(false)
@@ -110,6 +112,15 @@ export default function App() {
     setSettings(v); scheduleSave({ settings: v })
   }
 
+  function saveRecipe(recipe) {
+    if (!recipe?.id) return
+    setSavedRecipes(prev => {
+      const updated = { ...prev, [recipe.id]: recipe }
+      scheduleSave({ saved_recipes: updated })
+      return updated
+    })
+  }
+
   function showToast(msg) {
     setToast(msg)
     setTimeout(() => setToast(null), 2800)
@@ -134,13 +145,23 @@ export default function App() {
   function addMealsToPlan(planSelections) {
     const newPlan = { ...mealPlan }
     const mealDateMap = {}
+    const newSaved = {}
     planSelections.forEach(({ dateKey, mealType, meal, servings }) => {
+      // Persist Spoonacular recipe data so Calendar/Grocery can find it later
+      if (meal?.id?.startsWith('sp_')) newSaved[meal.id] = meal
       const key = `${meal.id}__${servings}`
       if (!mealDateMap[key]) mealDateMap[key] = { meal, servings, dates: [] }
       mealDateMap[key].dates.push(dateKey)
       if (!newPlan[dateKey]) newPlan[dateKey] = {}
       newPlan[dateKey][mealType] = { mealId: meal.id, servings }
     })
+    if (Object.keys(newSaved).length > 0) {
+      setSavedRecipes(prev => {
+        const updated = { ...prev, ...newSaved }
+        scheduleSave({ saved_recipes: updated })
+        return updated
+      })
+    }
     updateMealPlan(newPlan)
     let updatedGrocery = { ...groceryList }
     Object.values(mealDateMap).forEach(({ meal, servings, dates }) => {
@@ -151,6 +172,7 @@ export default function App() {
   }
 
   function swapMealOnPlan(dateKey, mealType, newMeal, newServings) {
+    if (newMeal?.id?.startsWith('sp_')) saveRecipe(newMeal)
     updateMealPlan(prev => ({
       ...prev,
       [dateKey]: {
@@ -192,7 +214,7 @@ export default function App() {
     newPlan[dateKey] = day
 
     // Rebuild grocery list from the full updated plan
-    const rebuilt = rebuildGroceryFromPlan(newPlan, customMeals)
+    const rebuilt = rebuildGroceryFromPlan(newPlan, customMeals, savedRecipes)
 
     // Preserve checked states from the current grocery list
     const merged = {}
@@ -251,6 +273,8 @@ export default function App() {
     onClearChecked: clearCheckedItems,
     onMarkTripComplete: markGroceryTripComplete,
     onSwapMeal: swapMealOnPlan,
+    savedRecipes,
+    onSaveRecipe: saveRecipe,
     onAdjustServings: adjustDayServings,
     onToggleFavorite: toggleFavorite,
     onOpenRecipe: setModalMeal,

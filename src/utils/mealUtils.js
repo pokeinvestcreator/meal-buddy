@@ -132,13 +132,16 @@ export function normalizeIngredientKey(name) {
   return name.toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
-export function rebuildGroceryFromPlan(mealPlan, customMeals = []) {
+export function rebuildGroceryFromPlan(mealPlan, customMeals = [], savedRecipes = {}) {
   const allMeals = [...MEALS, ...customMeals];
   let grocery = {};
   Object.entries(mealPlan).forEach(([dateKey, dayPlan]) => {
     Object.entries(dayPlan).forEach(([, entry]) => {
       if (!entry?.mealId) return;
-      const meal = allMeals.find((m) => m.id === entry.mealId);
+      // Spoonacular recipes are stored in savedRecipes, static meals in MEALS/customMeals
+      const meal = entry.mealId.startsWith('sp_')
+        ? savedRecipes[entry.mealId]
+        : allMeals.find((m) => m.id === entry.mealId);
       if (!meal) return;
       grocery = addMealToGrocery(grocery, meal, entry.servings || 1, [dateKey]);
     });

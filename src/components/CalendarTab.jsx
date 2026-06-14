@@ -120,7 +120,7 @@ function getCalCtx(goal) {
 
 export default function CalendarTab({
   mealPlan, customMeals, onOpenRecipe, onRemoveMeal, onSwapMeal,
-  onAddMeals, onAdjustServings, setActiveTab, settings
+  onAddMeals, onAdjustServings, setActiveTab, settings, savedRecipes = {}
 }) {
   const [weekOffset, setWeekOffset] = useState(0)
   const [selectedDate, setSelectedDate] = useState(toDateKey(new Date()))
@@ -141,7 +141,11 @@ export default function CalendarTab({
   const text = dark ? 'text-white' : 'text-stone-900'
   const sub = dark ? 'text-stone-400' : 'text-stone-500'
 
-  function findMeal(id) { return allMeals.find(m => m.id === id) }
+  function findMeal(id) {
+    if (!id) return null
+    if (id.startsWith('sp_')) return savedRecipes[id] || null
+    return allMeals.find(m => m.id === id) || null
+  }
 
   // Reset adjust view whenever the selected day changes
   useEffect(() => { setAdjusting(false) }, [selectedDate])
