@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import MealImage from './MealImage'
 
 function HeartIcon({ filled }) {
   return (
@@ -47,7 +48,7 @@ export default function RecipeModal({ meal, settings, isFavorite, onToggleFavori
 
           <div className="flex-1">
             <div className="flex items-center gap-2">
-              <span className="text-2xl">{meal.emoji}</span>
+              <MealImage meal={meal} size="sm" />
               <h1 className="font-bold text-stone-900 text-base leading-tight">{meal.name}</h1>
             </div>
           </div>
@@ -58,6 +59,12 @@ export default function RecipeModal({ meal, settings, isFavorite, onToggleFavori
           >
             <HeartIcon filled={isFavorite} />
           </button>
+        </div>
+
+
+        {/* Hero photo */}
+        <div className="px-4 pb-3">
+          <MealImage meal={meal} size="hero" />
         </div>
 
         {/* Quick stats */}

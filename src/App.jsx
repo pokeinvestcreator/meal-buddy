@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { supabase } from './lib/supabase'
 import { useAuth } from './context/AuthContext'
 import { addMealToGrocery, rebuildGroceryFromPlan } from './utils/mealUtils'
+import { PhotoProvider } from './context/PhotoContext'
 import AuthPage from './components/AuthPage'
 import ChatTab from './components/ChatTab'
 import BottomNav from './components/BottomNav'
@@ -273,6 +274,7 @@ export default function App() {
   }
 
   return (
+    <PhotoProvider customMeals={customMeals}>
     <div className={`h-screen flex flex-col overflow-hidden safe-top ${settings?.darkMode ? 'bg-stone-900' : 'bg-slate-50'}`}>
       <main className="flex-1 overflow-y-auto pb-20">{renderTab()}</main>
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} mealPlan={mealPlan} groceryList={groceryList} />
@@ -292,5 +294,6 @@ export default function App() {
         </div>
       )}
     </div>
+    </PhotoProvider>
   )
 }

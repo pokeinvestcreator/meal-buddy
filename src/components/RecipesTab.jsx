@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { MEALS } from '../data/meals'
 import { MEAL_TYPES, filterMealsByDietary, ALLERGENS, DIETARY_FLAGS } from '../utils/mealUtils'
+import MealImage from './MealImage'
 
 function HeartIcon({ filled }) {
   return (
@@ -15,7 +16,7 @@ function MealCard({ meal, isFavorite, onFavorite, onOpenRecipe, onDelete, isCust
   return (
     <div className="bg-white border border-stone-200 rounded-2xl p-3.5">
       <div className="flex items-start gap-3">
-        <span className="text-3xl leading-none mt-0.5">{meal.emoji}</span>
+        <MealImage meal={meal} size="lg" className="mt-0.5" />
         <div className="flex-1 min-w-0">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1">

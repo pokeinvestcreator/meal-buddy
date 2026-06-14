@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { MEALS } from '../data/meals'
 import { MEAL_TYPES, getWeekDates, toDateKey, getProteinDriverIngredient, filterMealsByDietary } from '../utils/mealUtils'
+import MealImage from './MealImage'
 
 // ── Macro analysis helpers ────────────────────────────────────────────────────
 
@@ -202,7 +203,7 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
                 }}
                 className={`w-full text-left rounded-2xl border-2 p-3.5 cursor-pointer ${isSel ? 'border-emerald-500 bg-emerald-50' : `border-transparent ${card}`}`}>
                 <div className="flex items-start gap-3">
-                  <span className="text-3xl leading-none">{meal.emoji}</span>
+                  <MealImage meal={meal} size="lg" />
                   <div className="flex-1">
                     <p className={`font-semibold text-sm ${isSel ? 'text-emerald-700' : text}`}>{meal.name} {isSel ? '✓' : ''}</p>
                     <p className={`text-[11px] ${sub}`}>{meal.prepTime + meal.cookTime}min · {m.calories}cal</p>
@@ -506,7 +507,7 @@ export default function PlanTab({ customMeals, onAddMeals, setActiveTab, setting
                 <p className={`text-xs font-semibold uppercase tracking-wide mb-2 ${sub}`}>{typeInfo?.emoji} {typeInfo?.label}</p>
                 {selected ? (
                   <div className="flex items-center gap-2">
-                    <span className="text-2xl">{selected.emoji}</span>
+                    <MealImage meal={selected} size="sm" />
                     <div className="flex-1">
                       <p className={`font-semibold text-sm ${text}`}>{selected.name}</p>
                       <p className={`text-xs ${sub}`}>{selected.macrosPerServing.protein}g P · {selected.macrosPerServing.calories} cal</p>

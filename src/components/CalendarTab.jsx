@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
 import { MEAL_TYPES, toDateKey, getProteinDriverIngredient, filterMealsByDietary } from '../utils/mealUtils'
+import MealImage from './MealImage'
 import { MEALS } from '../data/meals'
 
 // ── Week helper ───────────────────────────────────────────────────────────────
@@ -442,7 +443,7 @@ export default function CalendarTab({
             return (
               <div key={type.key} className={`rounded-2xl border p-3.5 ${card}`}>
                 <div className="flex items-center gap-3">
-                  <span className="text-2xl leading-none flex-shrink-0">{meal.emoji}</span>
+                  <MealImage meal={meal} size="sm" />
                   <div className="flex-1 min-w-0">
                     <span className={`inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${colorClass}`}>
                       {type.label}
@@ -536,7 +537,7 @@ export default function CalendarTab({
                 }}
                 className={`w-full text-left rounded-2xl border-2 p-3.5 cursor-pointer ${isCurrent ? 'border-emerald-500 bg-emerald-50' : `border-transparent ${card}`}`}>
                 <div className="flex items-start gap-3">
-                  <span className="text-3xl leading-none">{meal.emoji}</span>
+                  <MealImage meal={meal} size="lg" />
                   <div className="flex-1">
                     <p className={`font-semibold text-sm ${isCurrent ? 'text-emerald-700' : text}`}>
                       {meal.name} {isCurrent ? '(current)' : ''}
@@ -706,7 +707,7 @@ function CalendarMealCard({ type, meal, servings, dark, isExpanded, onToggle, on
   return (
     <div className={`border rounded-2xl overflow-hidden ${card}`}>
       <button onClick={onToggle} className="w-full flex items-center gap-3 p-3.5 text-left">
-        <span className="text-2xl">{meal.emoji}</span>
+        <MealImage meal={meal} size="sm" />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${colorClass}`}>{type.label}</span>
