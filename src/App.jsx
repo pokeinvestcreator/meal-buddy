@@ -298,7 +298,7 @@ export default function App() {
   }
 
   return (
-    <PhotoProvider customMeals={customMeals}>
+    <PhotoProvider>
     <div className={`h-screen flex flex-col overflow-hidden safe-top ${settings?.darkMode ? 'bg-stone-900' : 'bg-slate-50'}`}>
       <main className="flex-1 overflow-y-auto pb-20">{renderTab()}</main>
       <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} mealPlan={mealPlan} groceryList={groceryList} />
