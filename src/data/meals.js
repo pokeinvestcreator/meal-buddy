@@ -6518,3 +6518,13 @@ export const MEALS = [
     reheatingInstructions: "Oven 375F 5 min to re-crisp.",
   }
 ]
+
+export const GROCERY_CATEGORIES = [
+  { key: "protein", label: "Protein", emoji: "🥩" },
+  { key: "produce", label: "Produce", emoji: "🥦" },
+  { key: "dairy", label: "Dairy", emoji: "🥛" },
+  { key: "carbs", label: "Carbs", emoji: "🌾" },
+  { key: "sauces", label: "Sauces & Spices", emoji: "🫙" },
+  { key: "snacks", label: "Nuts & Snacks", emoji: "🥜" },
+  { key: "other", label: "Other", emoji: "🛒" },
+]
